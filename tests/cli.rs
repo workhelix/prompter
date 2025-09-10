@@ -41,7 +41,11 @@ fn test_init_list_validate_run() {
         .arg("--init")
         .output()
         .unwrap();
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     // --list
     let out = Command::new(bin_path())
@@ -60,7 +64,11 @@ fn test_init_list_validate_run() {
         .arg("--validate")
         .output()
         .unwrap();
-    assert!(out.status.success(), "validate failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "validate failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     // run profile
     let out = Command::new(bin_path())
@@ -68,7 +76,11 @@ fn test_init_list_validate_run() {
         .arg("python.api")
         .output()
         .unwrap();
-    assert!(out.status.success(), "run failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     // expected = a/b/c.md + f/g/h.md contents
     let lib = home.join(".local/prompter/library");
@@ -142,7 +154,11 @@ depends_on = ["child", "f/y.md", "a/x.md"]
         .args(["--separator", "\\n--\\n", "root"]) // CLI will unescape to "\n--\n"
         .output()
         .unwrap();
-    assert!(out.status.success(), "run failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     // Dedup behavior: only first occurrence of a file is included
     let expected = b"AX\n\n--\nFY\n".to_vec();
@@ -177,10 +193,7 @@ depends_on = ["A"]
 
 #[test]
 fn test_version_flag() {
-    let out = Command::new(bin_path())
-        .arg("--version")
-        .output()
-        .unwrap();
+    let out = Command::new(bin_path()).arg("--version").output().unwrap();
     assert!(out.status.success());
     let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let expected = format!("prompter {}", env!("CARGO_PKG_VERSION"));
