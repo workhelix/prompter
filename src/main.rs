@@ -1,3 +1,4 @@
+#![allow(clippy::items_after_test_module)]
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -102,6 +103,7 @@ fn parse_args_from(mut args: Vec<String>) -> Result<AppMode, String> {
     })
 }
 
+#[allow(clippy::while_let_on_iterator)]
 fn unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -227,8 +229,7 @@ fn parse_config_toml(input: &str) -> Result<Config, String> {
 fn strip_comments(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_str = false;
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
+    for c in s.chars() {
         if c == '"' {
             out.push(c);
             in_str = !in_str;
@@ -290,11 +291,9 @@ fn parse_array_items(s: &str) -> Result<Vec<String>, String> {
                 continue;
             }
             buf.push(c);
-        } else {
-            if c == '"' {
-                in_str = true;
-                continue;
-            }
+        } else if c == '"' {
+            in_str = true;
+            continue;
         }
     }
 
@@ -712,11 +711,9 @@ fn main() {
                     let stdout = io::stdout();
                     let mut handle = stdout.lock();
                     for path in files {
-                        if !first && !sep.is_empty() {
-                            if let Err(e) = handle.write_all(sep.as_bytes()) {
-                                eprintln!("Write error: {}", e);
-                                std::process::exit(1);
-                            }
+                        if !first && !sep.is_empty() && let Err(e) = handle.write_all(sep.as_bytes()) {
+                            eprintln!("Write error: {}", e);
+                            std::process::exit(1);
                         }
                         first = false;
                         match fs::read(&path) {
