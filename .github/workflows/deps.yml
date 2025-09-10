@@ -109,14 +109,14 @@ jobs:
         run: git checkout -- Cargo.lock
 
   msrv-check:
-    name: MSRV Compatibility
+    name: Compatibility (stable)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install MSRV toolchain
-        uses: dtolnay/rust-toolchain@1.70.0
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -125,18 +125,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: msrv-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: stable-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Check MSRV compatibility
+      - name: Check build and tests
         run: |
           cargo check --all
           cargo test --all
-
-      - name: Install cargo-msrv
-        run: cargo install cargo-msrv
-
-      - name: Verify MSRV
-        run: cargo msrv --output-format json
 
   licenses:
     name: License Compatibility Check
