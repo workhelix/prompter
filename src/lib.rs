@@ -593,4 +593,92 @@ depends_on = [
         let args = vec!["prompter".into(), "--version".into()];
         assert!(matches!(parse_args_from(args).unwrap(), AppMode::Version));
     }
+
+    struct FailAfterN {
+        writes_done: usize,
+        fail_on: usize,
+    }
+
+    impl Write for FailAfterN {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes_done += 1;
+            if self.writes_done == self.fail_on {
+                Err(io::Error::new(io::ErrorKind::Other, "synthetic write failure"))
+            } else {
+                Ok(buf.len())
+            }
+        }
+        fn flush(&mut self) -> io::Result<()> { Ok(()) }
+    }
+
+    #[test]
+    fn test_render_to_writer_write_error_on_separator() {
+        let lib = mk_tmp("prompter_write_err_sep");
+        fs::create_dir_all(lib.join("a")).unwrap();
+        fs::write(lib.join("a/x.md"), b"AX").unwrap();
+        fs::write(lib.join("a/y.md"), b"AY").unwrap();
+        let cfg = Config { profiles: HashMap::from([
+            ("p".into(), vec!["a/x.md".into(), "a/y.md".into()]),
+        ])};
+        let mut w = FailAfterN { writes_done: 0, fail_on: 2 }; // first file ok, fail on separator
+        let err = super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--")).unwrap_err();
+        assert!(err.contains("Write error"), "err={}", err);
+    }
+
+    #[test]
+    fn test_render_to_writer_write_error_on_file() {
+        let lib = mk_tmp("prompter_write_err_file");
+        fs::create_dir_all(lib.join("a")).unwrap();
+        fs::write(lib.join("a/x.md"), b"AX").unwrap();
+        let cfg = Config { profiles: HashMap::from([
+            ("p".into(), vec!["a/x.md".into()]),
+        ])};
+        let mut w = FailAfterN { writes_done: 0, fail_on: 1 }; // fail on first write (file content)
+        let err = super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--")).unwrap_err();
+        assert!(err.contains("Write error"), "err={}", err);
+    }
+
+    #[test]
+    fn test_run_list_and_validate_with_home_injection() {
+        let home = mk_tmp("prompter_home_unit_ok");
+        let cfg_dir = home.join(".config/prompter");
+        let lib_dir = home.join(".local/prompter/library");
+        fs::create_dir_all(&cfg_dir).unwrap();
+        fs::create_dir_all(lib_dir.join("a")).unwrap();
+        fs::create_dir_all(lib_dir.join("f")).unwrap();
+        fs::write(lib_dir.join("a/x.md"), b"AX\n").unwrap();
+        fs::write(lib_dir.join("f/y.md"), b"FY\n").unwrap();
+        let cfg = r#"
+[child]
+depends_on = ["a/x.md"]
+
+[root]
+depends_on = ["child", "f/y.md"]
+"#;
+        fs::write(cfg_dir.join("config.toml"), cfg).unwrap();
+        let prev_home = env::var("HOME").ok();
+        unsafe { env::set_var("HOME", &home); }
+        assert!(super::run_validate_stdout().is_ok());
+        assert!(super::run_list_stdout().is_ok());
+        if let Some(prev) = prev_home { unsafe { env::set_var("HOME", prev); } } else { unsafe { env::remove_var("HOME"); } }
+    }
+
+    #[test]
+    fn test_run_validate_with_home_injection_failure() {
+        let home = mk_tmp("prompter_home_unit_bad");
+        let cfg_dir = home.join(".config/prompter");
+        let lib_dir = home.join(".local/prompter/library");
+        fs::create_dir_all(&cfg_dir).unwrap();
+        fs::create_dir_all(&lib_dir).unwrap();
+        let cfg = r#"
+[root]
+depends_on = ["missing.md", "unknown_profile"]
+"#;
+        fs::write(cfg_dir.join("config.toml"), cfg).unwrap();
+        let prev_home = env::var("HOME").ok();
+        unsafe { env::set_var("HOME", &home); }
+        let err = super::run_validate_stdout().unwrap_err();
+        assert!(err.contains("Missing file") && err.contains("Unknown profile"), "err={}", err);
+        if let Some(prev) = prev_home { unsafe { env::set_var("HOME", prev); } } else { unsafe { env::remove_var("HOME"); } }
+    }
 }
