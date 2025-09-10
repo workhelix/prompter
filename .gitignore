@@ -1,0 +1,8 @@
+# Build artifacts
+target/
+
+# Local temp
+.tmp/
+
+# macOS
+.DS_Store
