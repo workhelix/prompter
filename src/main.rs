@@ -486,7 +486,78 @@ mod tests {
     #[test]
     fn test_unescape() {
         assert_eq!(unescape("a\\nb\\t\\\"\\\\c"), "a\nb\t\"\\c");
+        assert_eq!(unescape("line1\\rline2"), "line1\rline2");
         assert_eq!(unescape("noesc"), "noesc");
+    }
+
+    #[test]
+    fn test_strip_comments_and_brackets_detection() {
+        let s = r#"ab#cd"#;
+        assert_eq!(strip_comments(s), "ab");
+        let s = r#""ab#cd" # trailing"#;
+        assert_eq!(strip_comments(s), "\"ab#cd\" ");
+        assert!(contains_closing_bracket_outside_quotes("[\"not]here\"]]"));
+        assert!(!contains_closing_bracket_outside_quotes("[\"no]close\""));
+    }
+
+    #[test]
+    fn test_parse_array_items_escape_and_error() {
+        let s = r#"["a\"b", "c"]"#;
+        let items = parse_array_items(s).unwrap();
+        assert_eq!(items, vec!["a\"b", "c"]);
+        let err = parse_array_items("[\"unterminated").unwrap_err();
+        assert!(err.contains("Unterminated"));
+    }
+
+    #[test]
+    fn test_parse_config_errors() {
+        // empty section name
+        let err = parse_config_toml("[]\n").unwrap_err();
+        assert!(err.contains("Empty section name"));
+        // depends_on must be array
+        let err = parse_config_toml("[p]\ndepends_on = \"x\"\n").unwrap_err();
+        assert!(err.contains("must be an array"));
+        // depends_on outside of a profile section
+        let err = parse_config_toml("depends_on = [\"a.md\"]\n").unwrap_err();
+        assert!(err.contains("outside of a profile section"));
+    }
+
+    #[test]
+    fn test_validate_success_and_unknowns() {
+        let cfg = Config { profiles: HashMap::from([
+            ("p1".into(), vec!["a.md".into()]),
+            ("p2".into(), vec!["p1".into(), "b.md".into()]),
+        ])};
+        let lib = mk_tmp("prompter_validate_ok");
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("a.md"), b"A").unwrap();
+        fs::write(lib.join("b.md"), b"B").unwrap();
+        assert!(validate(&cfg, &lib).is_ok());
+        // unknown profile reference
+        let cfg2 = Config { profiles: HashMap::from([
+            ("root".into(), vec!["nope".into()]),
+        ])};
+        let err = validate(&cfg2, &lib).unwrap_err();
+        assert!(err.contains("Unknown profile"));
+    }
+
+    #[test]
+    fn test_resolve_errors() {
+        let cfg = Config { profiles: HashMap::from([
+            ("root".into(), vec!["missing.md".into()]),
+        ])};
+        let lib = mk_tmp("prompter_resolve_errs");
+        fs::create_dir_all(&lib).unwrap();
+        let mut seen = HashSet::new();
+        let mut stack = Vec::new();
+        let mut out = Vec::new();
+        let err = resolve_profile("root", &cfg, &lib, &mut seen, &mut stack, &mut out).unwrap_err();
+        match err { ResolveError::MissingFile(_, p) => assert_eq!(p, "root"), _ => panic!("expected missing file") }
+        let mut seen = HashSet::new();
+        let mut stack = Vec::new();
+        let mut out = Vec::new();
+        let err = resolve_profile("nope", &cfg, &lib, &mut seen, &mut stack, &mut out).unwrap_err();
+        match err { ResolveError::UnknownProfile(p) => assert_eq!(p, "nope"), _ => panic!("expected unknown profile") }
     }
 
     #[test]
