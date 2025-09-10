@@ -49,7 +49,7 @@ jobs:
         with:
           bin: prompter
           target: ${{ matrix.target }}
-          include: README.md
+          include: LICENSE,README.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

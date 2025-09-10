@@ -88,4 +88,4 @@ prompter -s "\n---\n" python.api
 - Library root: `~/.local/prompter/library`
 
 ## License
-Internal tool; set licensing as appropriate for your org.
+CC0 1.0 Universal (CC0-1.0). See LICENSE for details.
