@@ -480,6 +480,74 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_args_errors() {
+        // unknown flag
+        let args = vec!["prompter".into(), "--bogus".into()];
+        let err = parse_args_from(args).unwrap_err();
+        assert!(err.contains("Unknown flag"));
+        // missing separator value
+        let args = vec!["prompter".into(), "--separator".into()];
+        let err = parse_args_from(args).unwrap_err();
+        assert!(err.contains("requires a value"));
+        // unexpected positional after mode
+        let args = vec!["prompter".into(), "--list".into(), "foo".into()];
+        let err = parse_args_from(args).unwrap_err();
+        assert!(err.contains("Unexpected positional"));
+        // too many positionals
+        let args = vec!["prompter".into(), "foo".into(), "bar".into()];
+        let err = parse_args_from(args).unwrap_err();
+        assert!(err.contains("Too many positional"));
+        // no action specified
+        let args = vec!["prompter".into()];
+        let err = parse_args_from(args).unwrap_err();
+        assert!(err.contains("No action"));
+    }
+
+    #[test]
+    fn test_list_profiles_order() {
+        let cfg = Config { profiles: HashMap::from([
+            ("b".into(), vec![]),
+            ("a".into(), vec![]),
+        ])};
+        let mut out = Vec::new();
+        super::list_profiles(&cfg, &mut out).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "a\nb\n");
+    }
+
+    #[test]
+    fn test_validate_cycle_detected() {
+        let cfg = Config { profiles: HashMap::from([
+            ("A".into(), vec!["B".into()]),
+            ("B".into(), vec!["A".into()]),
+        ])};
+        let lib = mk_tmp("prompter_cycle");
+        fs::create_dir_all(&lib).unwrap();
+        let err = validate(&cfg, &lib).unwrap_err();
+        assert!(err.contains("Cycle detected"));
+    }
+
+    #[test]
+    fn test_parse_config_multiline_long() {
+        let cfg = r#"
+[profile.x]
+depends_on = [
+  "a/b.md",
+  "c/d.md",
+  "e/f.md",
+]
+"#;
+        let parsed = parse_config_toml(cfg).unwrap();
+        assert_eq!(parsed.profiles.get("profile.x").unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_array_items_escaped_backslash() {
+        let s = r#"["a\\"]"#; // a single backslash in content
+        let items = parse_array_items(s).unwrap();
+        assert_eq!(items, vec!["a\\"]);
+    }
+
+    #[test]
     fn test_parse_args_from() {
         let args = vec!["prompter".into(), "--separator".into(), "\\n--\\n".into(), "profile".into()];
         match parse_args_from(args).unwrap() {
