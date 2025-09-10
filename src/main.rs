@@ -593,16 +593,16 @@ depends_on = [
         }
         // list
         let args = vec!["prompter".into(), "--list".into()];
-        matches!(parse_args_from(args).unwrap(), AppMode::List);
+        assert!(matches!(parse_args_from(args).unwrap(), AppMode::List));
         // validate
         let args = vec!["prompter".into(), "--validate".into()];
-        matches!(parse_args_from(args).unwrap(), AppMode::Validate);
+        assert!(matches!(parse_args_from(args).unwrap(), AppMode::Validate));
         // init
         let args = vec!["prompter".into(), "--init".into()];
-        matches!(parse_args_from(args).unwrap(), AppMode::Init);
+        assert!(matches!(parse_args_from(args).unwrap(), AppMode::Init));
         // version
         let args = vec!["prompter".into(), "--version".into()];
-        matches!(parse_args_from(args).unwrap(), AppMode::Version);
+        assert!(matches!(parse_args_from(args).unwrap(), AppMode::Version));
     }
 }
 
