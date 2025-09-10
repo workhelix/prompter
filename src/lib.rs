@@ -348,15 +348,17 @@ pub fn run_validate_stdout() -> Result<(), String> {
     validate(&cfg, &lib)
 }
 
-pub fn run_render_stdout(profile: &str, separator: Option<&str>) -> Result<(), String> {
-    let cfg_text = read_config()?;
-    let cfg = parse_config_toml(&cfg_text)?;
-    let lib = library_dir()?;
-
+pub fn render_to_writer(
+    cfg: &Config,
+    lib: &Path,
+    mut w: impl Write,
+    profile: &str,
+    separator: Option<&str>,
+) -> Result<(), String> {
     let mut seen_files = HashSet::new();
     let mut stack = Vec::new();
     let mut files = Vec::new();
-    resolve_profile(profile, &cfg, &lib, &mut seen_files, &mut stack, &mut files)
+    resolve_profile(profile, cfg, lib, &mut seen_files, &mut stack, &mut files)
         .map_err(|e| match e {
             ResolveError::UnknownProfile(p) => format!("Unknown profile: {}", p),
             ResolveError::Cycle(c) => format!("Cycle detected: {}", c.join(" -> ")),
@@ -365,19 +367,26 @@ pub fn run_render_stdout(profile: &str, separator: Option<&str>) -> Result<(), S
 
     let mut first = true;
     let sep = separator.unwrap_or("");
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
     for path in files {
-        if !first && !sep.is_empty() && let Err(e) = handle.write_all(sep.as_bytes()) {
+        if !first && !sep.is_empty() && let Err(e) = w.write_all(sep.as_bytes()) {
             return Err(format!("Write error: {}", e));
         }
         first = false;
         match fs::read(&path) {
-            Ok(bytes) => handle.write_all(&bytes).map_err(|e| format!("Write error: {}", e))?,
+            Ok(bytes) => w.write_all(&bytes).map_err(|e| format!("Write error: {}", e))?,
             Err(e) => return Err(format!("Failed to read {}: {}", path.display(), e)),
         }
     }
     Ok(())
+}
+
+pub fn run_render_stdout(profile: &str, separator: Option<&str>) -> Result<(), String> {
+    let cfg_text = read_config()?;
+    let cfg = parse_config_toml(&cfg_text)?;
+    let lib = library_dir()?;
+    let stdout = io::stdout();
+    let handle = stdout.lock();
+    render_to_writer(&cfg, &lib, handle, profile, separator)
 }
 
 #[cfg(test)]
@@ -538,6 +547,24 @@ depends_on = [
 "#;
         let parsed = parse_config_toml(cfg).unwrap();
         assert_eq!(parsed.profiles.get("profile.x").unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_render_to_writer_basic() {
+        // library and files
+        let lib = mk_tmp("prompter_render_to_writer");
+        fs::create_dir_all(lib.join("a")).unwrap();
+        fs::create_dir_all(lib.join("f")).unwrap();
+        fs::write(lib.join("a/x.md"), b"AX\n").unwrap();
+        fs::write(lib.join("f/y.md"), b"FY\n").unwrap();
+        // config with nested profile and duplicate file reference
+        let cfg = Config { profiles: HashMap::from([
+            ("child".into(), vec!["a/x.md".into()]),
+            ("root".into(), vec!["child".into(), "f/y.md".into(), "a/x.md".into()]),
+        ])};
+        let mut out = Vec::new();
+        super::render_to_writer(&cfg, &lib, &mut out, "root", Some("\n--\n")).unwrap();
+        assert_eq!(out, b"AX\n\n--\nFY\n");
     }
 
     #[test]
