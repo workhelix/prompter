@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./target/release/prompter -s \"\\n---\\n\" python.api)",
+      "Bash(cargo test)",
+      "Bash(cargo build:*)",
+      "Bash(./target/release/prompter python.api)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git tag:*)",
+      "Bash(git push:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
