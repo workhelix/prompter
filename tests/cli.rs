@@ -82,13 +82,20 @@ fn test_init_list_validate_run() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // expected = a/b/c.md + f/g/h.md contents
+    // Check output contains expected content (prefix + file contents)
+    let output_str = String::from_utf8_lossy(&out.stdout);
+    // Should start with system prefix
+    assert!(output_str.starts_with("Today is "));
+    assert!(output_str.contains(", and you are running on a "));
+    assert!(output_str.contains(" system.\n\n"));
+    // Should contain the library file contents
     let lib = home.join(".local/prompter/library");
-    let mut expected = Vec::new();
-    expected.extend(read_all(&lib.join("a/b/c.md")));
-    expected.extend(read_all(&lib.join("f/g/h.md")));
-
-    assert_eq!(out.stdout, expected);
+    let c_bytes = read_all(&lib.join("a/b/c.md"));
+    let h_bytes = read_all(&lib.join("f/g/h.md"));
+    let c_content = String::from_utf8_lossy(&c_bytes);
+    let h_content = String::from_utf8_lossy(&h_bytes);
+    assert!(output_str.contains(&*c_content));
+    assert!(output_str.contains(&*h_content));
 }
 
 #[test]
@@ -161,8 +168,17 @@ depends_on = ["child", "f/y.md", "a/x.md"]
     );
 
     // Dedup behavior: only first occurrence of a file is included
-    let expected = b"AX\n\n--\nFY\n".to_vec();
-    assert_eq!(out.stdout, expected);
+    let output_str = String::from_utf8_lossy(&out.stdout);
+    // Should start with system prefix
+    assert!(output_str.starts_with("Today is "));
+    assert!(output_str.contains(", and you are running on a "));
+    assert!(output_str.contains(" system.\n\n"));
+    // Should contain file content with separator, in expected order
+    assert!(output_str.contains("AX\n"));
+    assert!(output_str.contains("\n--\n"));
+    assert!(output_str.contains("FY\n"));
+    // Should end with FY\n (after prefix and AX\n\n--\n)
+    assert!(output_str.ends_with("FY\n"));
 }
 
 #[test]

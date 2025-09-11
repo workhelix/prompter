@@ -94,13 +94,14 @@ jobs:
       - name: Run tests with coverage (Linux only)
         if: matrix.coverage
         run: |
-          cargo tarpaulin --all --out xml --engine llvm --timeout 300 --fail-under 80
+          cargo tarpaulin --all --out Xml --engine llvm --timeout 300 --fail-under 80
 
       - name: Upload coverage to Codecov
         if: matrix.coverage
         uses: codecov/codecov-action@v4
         with:
-          file: ./cobertura.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./tarpaulin-report.xml
           flags: unittests
           name: codecov-umbrella
 

@@ -1,5 +1,8 @@
 # prompter
 
+[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/OWNER/REPO/branch/main/graph/badge.svg?token=CODECOV_TOKEN)](https://codecov.io/gh/OWNER/REPO)
+
 A small Rust CLI to compose reusable prompt snippets from a library and a TOML manifest. Designed for fast local use and simple, explicit behavior.
 
 ## Features
