@@ -3,6 +3,7 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use chrono::Local;
 
 #[derive(Debug)]
 pub struct Config {
@@ -106,6 +107,13 @@ fn config_path() -> Result<PathBuf, String> {
 
 fn library_dir() -> Result<PathBuf, String> {
     Ok(home_dir()?.join(".local/prompter/library"))
+}
+
+fn format_system_prefix() -> String {
+    let date = Local::now().format("%Y-%m-%d").to_string();
+    let os = env::consts::OS;
+    let arch = env::consts::ARCH;
+    format!("Today is {}, and you are running on a {}/{} system.\n\n", date, arch, os)
 }
 
 fn read_config() -> Result<String, String> {
@@ -365,6 +373,10 @@ pub fn render_to_writer(
             ResolveError::MissingFile(path, prof) => format!("Missing file: {} (referenced by [{}])", path.display(), prof),
         })?;
 
+    // Write system prefix
+    let prefix = format_system_prefix();
+    w.write_all(prefix.as_bytes()).map_err(|e| format!("Write error: {}", e))?;
+
     let mut first = true;
     let sep = separator.unwrap_or("");
     for path in files {
@@ -564,7 +576,18 @@ depends_on = [
         ])};
         let mut out = Vec::new();
         super::render_to_writer(&cfg, &lib, &mut out, "root", Some("\n--\n")).unwrap();
-        assert_eq!(out, b"AX\n\n--\nFY\n");
+        
+        let output_str = String::from_utf8(out).unwrap();
+        // Should start with prefix containing date and system info
+        assert!(output_str.starts_with("Today is "));
+        assert!(output_str.contains(", and you are running on a "));
+        assert!(output_str.contains(" system.\n\n"));
+        // Should contain the file contents with separator
+        assert!(output_str.contains("AX\n"));
+        assert!(output_str.contains("\n--\n"));
+        assert!(output_str.contains("FY\n"));
+        // Should end with the file content (FY\n)
+        assert!(output_str.ends_with("FY\n"));
     }
 
     #[test]
