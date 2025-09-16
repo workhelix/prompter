@@ -51,6 +51,7 @@ jobs:
           target: ${{ matrix.target }}
           tar: none
           tar-xz: none
+          zip: all
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
