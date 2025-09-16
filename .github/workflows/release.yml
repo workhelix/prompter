@@ -49,7 +49,9 @@ jobs:
         with:
           bin: prompter
           target: ${{ matrix.target }}
-          include: LICENSE,README.md
+          tar: none
+          zip: none
+          tar-xz: none
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
