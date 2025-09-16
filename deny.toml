@@ -1,0 +1,110 @@
+# Aggressive cargo-deny configuration for prompter project
+# Enforces strict security, licensing, and dependency policies
+
+[graph]
+# Check all features to ensure comprehensive coverage
+all-features = true
+
+# This section is considered when running `cargo deny check advisories`
+# More documentation for the advisories section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
+[advisories]
+# Use git CLI for better authentication support
+git-fetch-with-cli = true
+
+# This section is considered when running `cargo deny check licenses`
+# More documentation for the licenses section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
+[licenses]
+# Strictly control allowed licenses
+allow = ["MIT", "Apache-2.0", "MPL-2.0", "Unicode-3.0", "CC0-1.0"]
+
+# High confidence threshold for license detection
+confidence-threshold = 0.9
+
+# Some crates don't have (easily) machine readable licensing information,
+# adding a clarification entry for it allows you to manually specify the
+# licensing information
+#[[licenses.clarify]]
+# The package spec the clarification applies to
+#crate = "ring"
+# The SPDX expression for the license requirements of the crate
+#expression = "MIT AND ISC AND OpenSSL"
+# One or more files in the crate's source used as the "source of truth" for
+# the license expression. If the contents match, the clarification will be used
+# when running the license check, otherwise the clarification will be ignored
+# and the crate will be checked normally, which may produce warnings or errors
+# depending on the rest of your configuration
+#license-files = [
+# Each entry is a crate relative path, and the (opaque) hash of its contents
+#{ path = "LICENSE", hash = 0xbd0eed23 }
+#]
+
+[licenses.private]
+# If true, ignores workspace crates that aren't published, or are only
+# published to private registries.
+# To see how to mark a crate as unpublished (to the official registry),
+# visit https://doc.rust-lang.org/cargo/reference/manifest.html#the-publish-field.
+ignore = false
+# One or more private registries that you might publish crates to, if a crate
+# is only published to private registries, and ignore is true, the crate will
+# not have its license(s) checked
+registries = [
+  #"https://sekretz.com/registry
+]
+
+# This section is considered when running `cargo deny check bans`.
+# More documentation about the 'bans' section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html
+[bans]
+# Warn on multiple versions but allow Windows ecosystem duplicates
+multiple-versions = "warn"
+wildcards = "deny"
+
+# Allow Windows ecosystem duplicates (common in cross-platform apps)
+skip = [
+  { crate = "windows-sys" },
+  { crate = "windows-targets" },
+  { crate = "windows-link" },
+  { crate = "windows_aarch64_gnullvm" },
+  { crate = "windows_aarch64_msvc" },
+  { crate = "windows_i686_gnu" },
+  { crate = "windows_i686_gnullvm" },
+  { crate = "windows_i686_msvc" },
+  { crate = "windows_x86_64_gnu" },
+  { crate = "windows_x86_64_gnullvm" },
+  { crate = "windows_x86_64_msvc" },
+]
+
+# List of features to allow/deny
+# Each entry the name of a crate and a version range. If version is
+# not specified, all versions will be matched.
+#[[bans.features]]
+#crate = "reqwest"
+# Features to not allow
+#deny = ["json"]
+# Features to allow
+#allow = [
+#    "rustls",
+#    "__rustls",
+#    "__tls",
+#    "hyper-rustls",
+#    "rustls",
+#    "rustls-pemfile",
+#    "rustls-tls-webpki-roots",
+#    "tokio-rustls",
+#    "webpki-roots",
+#]
+# If true, the allowed features must exactly match the enabled feature set. If
+# this is set there is no point setting `deny`
+#exact = true
+
+
+# This section is considered when running `cargo deny check sources`.
+# More documentation about the 'sources' section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/sources/cfg.html
+[sources]
+# Only allow crates.io
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

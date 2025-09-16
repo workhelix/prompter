@@ -1,8 +1,34 @@
 [package]
 name = "prompter"
-version = "0.2.1"
+version = "0.4.0"
 edition = "2024"
 license = "CC0-1.0"
+description = "A CLI tool for composing reusable prompt snippets from a library using TOML profiles"
+repository = "https://github.com/workhelix/prompter"
+keywords = ["cli", "prompt", "snippets", "llm", "toml"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lints.rust]
+unsafe_code = "warn"  # Allow unsafe in tests with explicit annotation
+missing_docs = "deny"
+
+[lints.clippy]
+# Deny common issues
+enum_glob_use = "deny"
+wildcard_imports = "deny"
+
+# Allow only unavoidable Windows ecosystem duplicates
+multiple_crate_versions = "allow" # Windows ecosystem unavoidable duplicates
+
+# Quality checks - maximum aggression
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
 
 [dependencies]
 chrono = { version = "0.4", features = ["clock"] }
+clap = { version = "4.5", features = ["derive"] }
+colored = "2.1"
+indicatif = "0.17"
+is-terminal = "0.4"

@@ -1,3 +1,8 @@
+//! Integration tests for the prompter CLI.
+//!
+//! These tests verify the complete CLI functionality by running the actual
+//! binary with various arguments and checking the results.
+
 use std::env;
 use std::fs;
 use std::io::Read;
@@ -26,7 +31,7 @@ fn read_all(path: &std::path::Path) -> Vec<u8> {
     buf
 }
 
-fn bin_path() -> &'static str {
+const fn bin_path() -> &'static str {
     env!("CARGO_BIN_EXE_prompter")
 }
 
@@ -35,10 +40,10 @@ fn test_init_list_validate_run() {
     let home = tmp_home("prompter_it_home");
     fs::create_dir_all(&home).unwrap();
 
-    // --init
+    // init
     let out = Command::new(bin_path())
         .env("HOME", &home)
-        .arg("--init")
+        .arg("init")
         .output()
         .unwrap();
     assert!(
@@ -47,10 +52,10 @@ fn test_init_list_validate_run() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // --list
+    // list
     let out = Command::new(bin_path())
         .env("HOME", &home)
-        .arg("--list")
+        .arg("list")
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -58,10 +63,10 @@ fn test_init_list_validate_run() {
     assert!(list.contains("python.api"));
     assert!(list.contains("general.testing"));
 
-    // --validate
+    // validate
     let out = Command::new(bin_path())
         .env("HOME", &home)
-        .arg("--validate")
+        .arg("validate")
         .output()
         .unwrap();
     assert!(
@@ -82,10 +87,12 @@ fn test_init_list_validate_run() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // Check output contains expected content (prefix + file contents)
+    // Check output contains expected content (pre-prompt + prefix + file contents)
     let output_str = String::from_utf8_lossy(&out.stdout);
-    // Should start with system prefix
-    assert!(output_str.starts_with("Today is "));
+    // Should start with default pre-prompt
+    assert!(output_str.starts_with("You are an LLM coding agent."));
+    // Should contain system prefix
+    assert!(output_str.contains("Today is "));
     assert!(output_str.contains(", and you are running on a "));
     assert!(output_str.contains(" system.\n\n"));
     // Should contain the library file contents
@@ -115,7 +122,7 @@ depends_on = ["does.not.exist.md", "unknown_profile"]
     // validate should fail
     let out = Command::new(bin_path())
         .env("HOME", &home)
-        .arg("--validate")
+        .arg("validate")
         .output()
         .unwrap();
     assert!(!out.status.success());
@@ -169,8 +176,10 @@ depends_on = ["child", "f/y.md", "a/x.md"]
 
     // Dedup behavior: only first occurrence of a file is included
     let output_str = String::from_utf8_lossy(&out.stdout);
-    // Should start with system prefix
-    assert!(output_str.starts_with("Today is "));
+    // Should start with default pre-prompt
+    assert!(output_str.starts_with("You are an LLM coding agent."));
+    // Should contain system prefix
+    assert!(output_str.contains("Today is "));
     assert!(output_str.contains(", and you are running on a "));
     assert!(output_str.contains(" system.\n\n"));
     // Should contain file content with separator, in expected order
@@ -199,17 +208,17 @@ depends_on = ["A"]
 
     let out = Command::new(bin_path())
         .env("HOME", &home)
-        .arg("--validate")
+        .arg("validate")
         .output()
         .unwrap();
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("Cycle detected"), "stderr: {}", err);
+    assert!(err.contains("Cycle detected"), "stderr: {err}");
 }
 
 #[test]
 fn test_version_flag() {
-    let out = Command::new(bin_path()).arg("--version").output().unwrap();
+    let out = Command::new(bin_path()).arg("version").output().unwrap();
     assert!(out.status.success());
     let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let expected = format!("prompter {}", env!("CARGO_PKG_VERSION"));

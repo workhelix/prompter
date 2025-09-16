@@ -41,7 +41,7 @@ install -m 0755 target/release/prompter ~/.local/bin/
 Creates default config and sample library files (non-destructive: only writes if missing):
 
 ```bash
-prompter --init
+prompter init
 ```
 
 ## Configure
@@ -64,17 +64,40 @@ depends_on = ["python.api", "a/b/d.md"]
 
 ```bash
 # List profiles
-prompter --list
+prompter list
 
 # Validate config and library references
-prompter --validate
+prompter validate
 
 # Render a profile (concatenated file contents)
 prompter python.api
 
+# Explicit render command
+prompter run python.api
+
 # Render with a separator between files
 prompter -s "\n---\n" python.api
+
+# Render with a custom pre-prompt
+prompter -p "Custom instruction here.\n" python.api
+
+# Render with both separator and pre-prompt
+prompter -s "\n---\n" -p "Custom pre-prompt.\n" python.api
+
+# Show help
+prompter help
+
+# Show version
+prompter version
 ```
+
+### Pre-prompt Feature
+
+By default, prompter adds a pre-prompt to all rendered output:
+
+> "You are an LLM coding agent. Here are invariants that you must adhere to. Please respond with 'Got it' when you have studied these and understand them. At that point, the operator will give you further instructions. You are *not* to do anything to the contents of this directory until you have been explicitly asked to, by the operator."
+
+You can override this with the `-p/--pre-prompt` option or disable it entirely by providing an empty string.
 
 ## Behavior
 - Missing files or unknown profiles: exits non-zero with clear errors.

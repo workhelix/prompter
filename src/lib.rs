@@ -1,77 +1,187 @@
+//! Prompter: A CLI tool for composing reusable prompt snippets.
+//!
+//! This library provides functionality for managing and rendering prompt snippets
+//! from a structured library using TOML configuration files. It supports recursive
+//! profile dependencies, file deduplication, and customizable output formatting.
+
+use chrono::Local;
+use clap::{Parser, Subcommand};
+use colored::Colorize;
+use indicatif::{ProgressBar, ProgressStyle};
+use is_terminal::IsTerminal;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use chrono::Local;
 
+/// Configuration structure holding profile definitions and their dependencies.
+///
+/// Profiles map names to lists of dependencies, where dependencies can be either
+/// markdown files (ending in .md) or references to other profiles.
 #[derive(Debug)]
 pub struct Config {
-    pub(crate) profiles: HashMap<String, Vec<String>>, // profile -> deps
+    /// Map of profile names to their dependency lists
+    pub(crate) profiles: HashMap<String, Vec<String>>,
 }
 
+/// Command-line interface structure for the prompter tool.
+///
+/// This structure defines the main CLI interface using clap's derive API,
+/// supporting both subcommands and direct profile rendering.
+#[derive(Parser, Debug)]
+#[command(name = "prompter")]
+#[command(about = "A CLI tool for composing reusable prompt snippets")]
+#[command(version)]
+pub struct Cli {
+    /// Optional subcommand to execute
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
+    /// Profile to render (shorthand for 'run `<profile>`')
+    #[arg(value_name = "PROFILE")]
+    pub profile: Option<String>,
+
+    /// Separator between files
+    #[arg(short, long, value_name = "STRING")]
+    pub separator: Option<String>,
+
+    /// Pre-prompt text to inject at the beginning
+    #[arg(short = 'p', long, value_name = "TEXT")]
+    pub pre_prompt: Option<String>,
+}
+
+/// Available subcommands for the prompter CLI.
+///
+/// Each variant represents a different operation mode of the tool.
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Show version information
+    Version,
+    /// Initialize default config and library
+    Init,
+    /// List available profiles
+    List,
+    /// Validate configuration and library references
+    Validate,
+    /// Render a profile (concatenated file contents)
+    Run {
+        /// Profile name to render
+        profile: String,
+        /// Separator between files
+        #[arg(short, long)]
+        separator: Option<String>,
+        /// Pre-prompt text to inject at the beginning
+        #[arg(short = 'p', long)]
+        pre_prompt: Option<String>,
+    },
+}
+
+/// Application execution modes after parsing command-line arguments.
+///
+/// This enum represents the resolved execution mode after processing
+/// both subcommands and direct profile arguments.
 #[derive(Debug)]
 pub enum AppMode {
-    Run { profile: String, separator: Option<String> },
+    /// Render a profile with optional separator and pre-prompt
+    Run {
+        /// Profile name to render
+        profile: String,
+        /// Optional separator between concatenated files
+        separator: Option<String>,
+        /// Optional custom pre-prompt text
+        pre_prompt: Option<String>,
+    },
+    /// List all available profiles
     List,
+    /// Validate configuration and library references
     Validate,
+    /// Initialize default configuration and library
     Init,
+    /// Show version information
     Version,
+    /// Show help information
+    Help,
 }
 
-pub fn parse_args_from(mut args: Vec<String>) -> Result<AppMode, String> {
-    // args[0] is program
-    if args.is_empty() {
-        return Err("No args".into());
-    }
-    args.remove(0);
+/// Parse command-line arguments and return the resolved application mode.
+///
+/// This function takes raw command-line arguments and uses clap to parse them
+/// into a structured `AppMode` enum, handling both subcommands and direct
+/// profile arguments for backward compatibility.
+///
+/// # Arguments
+/// * `args` - Vector of command-line arguments including program name
+///
+/// # Returns
+/// * `Ok(AppMode)` - Successfully parsed application mode
+/// * `Err(String)` - Error message if parsing fails
+///
+/// # Errors
+/// Returns an error if:
+/// - Invalid command-line syntax is provided
+/// - Required arguments are missing
+/// - Conflicting options are specified
+pub fn parse_args_from(args: Vec<String>) -> Result<AppMode, String> {
+    let cli = Cli::try_parse_from(args).map_err(|e| e.to_string())?;
 
-    let mut separator: Option<String> = None;
-    let mut mode: Option<AppMode> = None;
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--list" => {
-                if mode.is_some() { return Err("Cannot combine --list with other modes".into()); }
-                mode = Some(AppMode::List);
-                i += 1;
-            }
-            "--validate" => {
-                if mode.is_some() { return Err("Cannot combine --validate with other modes".into()); }
-                mode = Some(AppMode::Validate);
-                i += 1;
-            }
-            "--init" => {
-                if mode.is_some() { return Err("Cannot combine --init with other modes".into()); }
-                mode = Some(AppMode::Init);
-                i += 1;
-            }
-            "--version" => {
-                if mode.is_some() { return Err("Cannot combine --version with other modes".into()); }
-                mode = Some(AppMode::Version);
-                i += 1;
-            }
-            "--separator" | "-s" => {
-                if i + 1 >= args.len() { return Err("--separator requires a value".into()); }
-                separator = Some(unescape(&args[i + 1]));
-                i += 2;
-            }
-            s if s.starts_with('-') => {
-                return Err(format!("Unknown flag: {}", s));
-            }
-            _ => {
-                if mode.is_some() { return Err("Unexpected positional argument".into()); }
-                let profile = args[i].clone();
-                mode = Some(AppMode::Run { profile, separator: separator.clone() });
-                i += 1;
-                if i < args.len() { return Err("Too many positional arguments".into()); }
-            }
+    match (&cli.command, &cli.profile) {
+        (Some(Commands::Version), _) => Ok(AppMode::Version),
+        (Some(Commands::Init), _) => Ok(AppMode::Init),
+        (Some(Commands::List), _) => Ok(AppMode::List),
+        (Some(Commands::Validate), _) => Ok(AppMode::Validate),
+        (
+            Some(Commands::Run {
+                profile,
+                separator,
+                pre_prompt,
+            }),
+            _,
+        ) => {
+            let sep = separator
+                .as_ref()
+                .or(cli.separator.as_ref())
+                .map(|s| unescape(s));
+            let pre = pre_prompt
+                .as_ref()
+                .or(cli.pre_prompt.as_ref())
+                .map(|s| unescape(s));
+            Ok(AppMode::Run {
+                profile: profile.clone(),
+                separator: sep,
+                pre_prompt: pre,
+            })
         }
+        (None, Some(profile)) => {
+            let sep = cli.separator.as_ref().map(|s| unescape(s));
+            let pre = cli.pre_prompt.as_ref().map(|s| unescape(s));
+            Ok(AppMode::Run {
+                profile: profile.clone(),
+                separator: sep,
+                pre_prompt: pre,
+            })
+        }
+        (None, None) => Ok(AppMode::Help),
     }
-
-    mode.ok_or_else(|| "No action specified".into())
 }
 
+/// Unescape special characters in strings.
+///
+/// Processes escape sequences like `\n`, `\t`, `\"`, and `\\` in input strings,
+/// converting them to their literal character equivalents.
+///
+/// # Arguments
+/// * `s` - Input string that may contain escape sequences
+///
+/// # Returns
+/// String with escape sequences converted to literal characters
+///
+/// # Examples
+/// ```
+/// use prompter::unescape;
+/// assert_eq!(unescape("line1\\nline2"), "line1\nline2");
+/// ```
+#[must_use]
 #[allow(clippy::while_let_on_iterator)]
 pub fn unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -83,12 +193,11 @@ pub fn unescape(s: &str) -> String {
                 Some('t') => out.push('\t'),
                 Some('r') => out.push('\r'),
                 Some('"') => out.push('"'),
-                Some('\\') => out.push('\\'),
+                Some('\\') | None => out.push('\\'),
                 Some(other) => {
                     out.push('\\');
                     out.push(other);
                 }
-                None => out.push('\\'),
             }
         } else {
             out.push(c);
@@ -98,7 +207,9 @@ pub fn unescape(s: &str) -> String {
 }
 
 fn home_dir() -> Result<PathBuf, String> {
-    env::var("HOME").map(PathBuf::from).map_err(|_| "$HOME not set".into())
+    env::var("HOME")
+        .map(PathBuf::from)
+        .map_err(|_| "$HOME not set".into())
 }
 
 fn config_path() -> Result<PathBuf, String> {
@@ -109,11 +220,45 @@ fn library_dir() -> Result<PathBuf, String> {
     Ok(home_dir()?.join(".local/prompter/library"))
 }
 
+fn is_terminal() -> bool {
+    std::io::stdout().is_terminal()
+}
+
+fn default_pre_prompt() -> String {
+    "You are an LLM coding agent. Here are invariants that you must adhere to. Please respond with 'Got it' when you have studied these and understand them. At that point, the operator will give you further instructions. You are *not* to do anything to the contents of this directory until you have been explicitly asked to, by the operator.\n\n".to_string()
+}
+
 fn format_system_prefix() -> String {
     let date = Local::now().format("%Y-%m-%d").to_string();
     let os = env::consts::OS;
     let arch = env::consts::ARCH;
-    format!("Today is {}, and you are running on a {}/{} system.\n\n", date, arch, os)
+
+    if is_terminal() {
+        format!(
+            "🗓️  Today is {}, and you are running on a {}/{} system.\n\n",
+            date.bright_cyan(),
+            arch.bright_green(),
+            os.bright_green()
+        )
+    } else {
+        format!("Today is {date}, and you are running on a {arch}/{os} system.\n\n")
+    }
+}
+
+fn success_message(msg: &str) -> String {
+    if is_terminal() {
+        format!("✅ {}", msg.bright_green())
+    } else {
+        msg.to_string()
+    }
+}
+
+fn info_message(msg: &str) -> String {
+    if is_terminal() {
+        format!("ℹ️  {}", msg.bright_blue())
+    } else {
+        msg.to_string()
+    }
 }
 
 fn read_config() -> Result<String, String> {
@@ -121,6 +266,23 @@ fn read_config() -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
 }
 
+/// Parse TOML configuration into a Config structure.
+///
+/// Processes TOML input containing profile definitions and their dependencies,
+/// handling multi-line arrays and comment stripping.
+///
+/// # Arguments
+/// * `input` - TOML configuration text
+///
+/// # Returns
+/// * `Ok(Config)` - Successfully parsed configuration
+/// * `Err(String)` - Error message describing parsing failure
+///
+/// # Errors
+/// Returns an error if:
+/// - TOML syntax is invalid
+/// - Profile sections are malformed
+/// - `depends_on` arrays have invalid syntax
 pub fn parse_config_toml(input: &str) -> Result<Config, String> {
     let mut profiles: HashMap<String, Vec<String>> = HashMap::new();
     let mut current: Option<String> = None;
@@ -130,16 +292,24 @@ pub fn parse_config_toml(input: &str) -> Result<Config, String> {
 
     for raw_line in input.lines() {
         let line = strip_comments(raw_line).trim().to_string();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         if collecting {
             buffer.push(' ');
             buffer.push_str(&line);
             if contains_closing_bracket_outside_quotes(&buffer) {
-                let items = parse_array_items(&buffer).map_err(|e| format!(
-                    "Invalid depends_on array for [{}]: {}",
-                    current.clone().unwrap_or_default(), e))?;
-                let name = current.clone().ok_or_else(|| "depends_on outside of a profile section".to_string())?;
+                let items = parse_array_items(&buffer).map_err(|e| {
+                    format!(
+                        "Invalid depends_on array for [{}]: {}",
+                        current.clone().unwrap_or_default(),
+                        e
+                    )
+                })?;
+                let name = current
+                    .clone()
+                    .ok_or_else(|| "depends_on outside of a profile section".to_string())?;
                 profiles.insert(name, items);
                 collecting = false;
                 buffer.clear();
@@ -149,7 +319,9 @@ pub fn parse_config_toml(input: &str) -> Result<Config, String> {
 
         if line.starts_with('[') && line.ends_with(']') {
             let name = line[1..line.len() - 1].trim().to_string();
-            if name.is_empty() { return Err("Empty section name []".into()); }
+            if name.is_empty() {
+                return Err("Empty section name []".into());
+            }
             current = Some(name);
             continue;
         }
@@ -157,15 +329,25 @@ pub fn parse_config_toml(input: &str) -> Result<Config, String> {
         if let Some(eq_pos) = line.find('=') {
             let key = line[..eq_pos].trim();
             let value = line[eq_pos + 1..].trim();
-            if key != "depends_on" { continue; }
-            if !value.starts_with('[') { return Err("depends_on must be an array".into()); }
+            if key != "depends_on" {
+                continue;
+            }
+            if !value.starts_with('[') {
+                return Err("depends_on must be an array".into());
+            }
             buffer.clear();
             buffer.push_str(value);
             if contains_closing_bracket_outside_quotes(&buffer) {
-                let items = parse_array_items(&buffer).map_err(|e| format!(
-                    "Invalid depends_on array for [{}]: {}",
-                    current.clone().unwrap_or_default(), e))?;
-                let name = current.clone().ok_or_else(|| "depends_on outside of a profile section".to_string())?;
+                let items = parse_array_items(&buffer).map_err(|e| {
+                    format!(
+                        "Invalid depends_on array for [{}]: {}",
+                        current.clone().unwrap_or_default(),
+                        e
+                    )
+                })?;
+                let name = current
+                    .clone()
+                    .ok_or_else(|| "depends_on outside of a profile section".to_string())?;
                 profiles.insert(name, items);
                 buffer.clear();
             } else {
@@ -186,7 +368,9 @@ fn strip_comments(s: &str) -> String {
             in_str = !in_str;
             continue;
         }
-        if !in_str && c == '#' { break; }
+        if !in_str && c == '#' {
+            break;
+        }
         out.push(c);
     }
     out
@@ -195,8 +379,12 @@ fn strip_comments(s: &str) -> String {
 fn contains_closing_bracket_outside_quotes(s: &str) -> bool {
     let mut in_str = false;
     for c in s.chars() {
-        if c == '"' { in_str = !in_str; }
-        if !in_str && c == ']' { return true; }
+        if c == '"' {
+            in_str = !in_str;
+        }
+        if !in_str && c == ']' {
+            return true;
+        }
     }
     false
 }
@@ -210,13 +398,24 @@ fn parse_array_items(s: &str) -> Result<Vec<String>, String> {
 
     for c in s.chars() {
         if !started {
-            if c == '[' { started = true; }
+            if c == '[' {
+                started = true;
+            }
             continue;
         }
-        if c == ']' && !in_str { break; }
+        if c == ']' && !in_str {
+            break;
+        }
         if in_str {
-            if escaped { buf.push(c); escaped = false; continue; }
-            if c == '\\' { escaped = true; continue; }
+            if escaped {
+                buf.push(c);
+                escaped = false;
+                continue;
+            }
+            if c == '\\' {
+                escaped = true;
+                continue;
+            }
             if c == '"' {
                 in_str = false;
                 items.push(buf.clone());
@@ -224,20 +423,55 @@ fn parse_array_items(s: &str) -> Result<Vec<String>, String> {
                 continue;
             }
             buf.push(c);
-        } else if c == '"' { in_str = true; continue; }
+        } else if c == '"' {
+            in_str = true;
+        }
     }
 
-    if in_str { return Err("Unterminated string in array".into()); }
+    if in_str {
+        return Err("Unterminated string in array".into());
+    }
     Ok(items)
 }
 
+/// Errors that can occur during profile resolution.
+///
+/// These errors represent various failure modes when resolving
+/// profile dependencies and validating file references.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResolveError {
+    /// Referenced profile name does not exist in configuration
     UnknownProfile(String),
+    /// Circular dependency detected in profile references
     Cycle(Vec<String>),
+    /// Referenced markdown file does not exist
     MissingFile(PathBuf, String), // (path, referenced_by)
 }
 
+/// Recursively resolve a profile's dependencies into a list of file paths.
+///
+/// Performs depth-first traversal of profile dependencies, handling both
+/// direct file references and recursive profile dependencies. Implements
+/// cycle detection and file deduplication.
+///
+/// # Arguments
+/// * `name` - Profile name to resolve
+/// * `cfg` - Configuration containing profile definitions
+/// * `lib` - Library root directory for resolving file paths
+/// * `seen_files` - Set tracking already included files for deduplication
+/// * `stack` - Stack for cycle detection during recursion
+/// * `out` - Output vector to collect resolved file paths
+///
+/// # Returns
+/// * `Ok(())` - Profile successfully resolved
+/// * `Err(ResolveError)` - Resolution failed due to missing files, cycles, or unknown profiles
+///
+/// # Errors
+/// Returns an error if:
+/// - Profile name is not found in configuration
+/// - Circular dependency is detected
+/// - Referenced markdown file does not exist
+#[allow(clippy::implicit_hasher)]
 pub fn resolve_profile(
     name: &str,
     cfg: &Config,
@@ -251,13 +485,23 @@ pub fn resolve_profile(
         cycle.push(name.to_string());
         return Err(ResolveError::Cycle(cycle));
     }
-    let deps = cfg.profiles.get(name).ok_or_else(|| ResolveError::UnknownProfile(name.to_string()))?;
+    let deps = cfg
+        .profiles
+        .get(name)
+        .ok_or_else(|| ResolveError::UnknownProfile(name.to_string()))?;
     stack.push(name.to_string());
     for dep in deps {
-        if dep.ends_with(".md") {
+        if std::path::Path::new(dep)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
             let path = lib.join(dep);
-            if !path.exists() { return Err(ResolveError::MissingFile(path, name.to_string())); }
-            if seen_files.insert(path.clone()) { out.push(path); }
+            if !path.exists() {
+                return Err(ResolveError::MissingFile(path, name.to_string()));
+            }
+            if seen_files.insert(path.clone()) {
+                out.push(path);
+            }
         } else {
             resolve_profile(dep, cfg, lib, seen_files, stack, out)?;
         }
@@ -266,25 +510,71 @@ pub fn resolve_profile(
     Ok(())
 }
 
+/// List all available profiles to a writer.
+///
+/// Outputs all profile names from the configuration in alphabetical order,
+/// one per line.
+///
+/// # Arguments
+/// * `cfg` - Configuration containing profile definitions
+/// * `w` - Writer to output profile names to
+///
+/// # Returns
+/// * `Ok(())` - All profiles listed successfully
+/// * `Err(io::Error)` - Write operation failed
+///
+/// # Errors
+/// Returns an error if writing to the output fails.
 pub fn list_profiles(cfg: &Config, mut w: impl Write) -> io::Result<()> {
     let mut names: Vec<_> = cfg.profiles.keys().cloned().collect();
     names.sort();
-    for n in names { writeln!(&mut w, "{}", n)?; }
+    for n in names {
+        writeln!(&mut w, "{n}")?;
+    }
     Ok(())
 }
 
+/// Validate configuration and library file references.
+///
+/// Checks that all profile dependencies are valid, including:
+/// - Referenced profiles exist in configuration
+/// - Referenced markdown files exist in library
+/// - No circular dependencies exist
+///
+/// # Arguments
+/// * `cfg` - Configuration to validate
+/// * `lib` - Library root directory for file validation
+///
+/// # Returns
+/// * `Ok(())` - Configuration is valid
+/// * `Err(String)` - Validation errors found
+///
+/// # Errors
+/// Returns an error if:
+/// - Referenced profiles don't exist
+/// - Referenced files don't exist
+/// - Circular dependencies are detected
 pub fn validate(cfg: &Config, lib: &Path) -> Result<(), String> {
     let mut errors: Vec<String> = Vec::new();
 
     for (profile, deps) in &cfg.profiles {
         for dep in deps {
-            if dep.ends_with(".md") {
+            if std::path::Path::new(dep)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+            {
                 let path = lib.join(dep);
                 if !path.exists() {
-                    errors.push(format!("Missing file: {} (referenced by [{}])", path.display(), profile));
+                    errors.push(format!(
+                        "Missing file: {} (referenced by [{}])",
+                        path.display(),
+                        profile
+                    ));
                 }
             } else if !cfg.profiles.contains_key(dep) {
-                errors.push(format!("Unknown profile: {} (referenced by [{}])", dep, profile));
+                errors.push(format!(
+                    "Unknown profile: {dep} (referenced by [{profile}])"
+                ));
             }
         }
     }
@@ -293,24 +583,77 @@ pub fn validate(cfg: &Config, lib: &Path) -> Result<(), String> {
         let mut seen_files = HashSet::new();
         let mut stack = Vec::new();
         let mut out = Vec::new();
-        if let Err(ResolveError::Cycle(cycle)) = resolve_profile(name, cfg, lib, &mut seen_files, &mut stack, &mut out) {
+        if let Err(ResolveError::Cycle(cycle)) =
+            resolve_profile(name, cfg, lib, &mut seen_files, &mut stack, &mut out)
+        {
             let chain = cycle.join(" -> ");
-            errors.push(format!("Cycle detected: {}", chain));
+            errors.push(format!("Cycle detected: {chain}"));
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors.join("\n")) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
 }
 
+/// Initialize default configuration and library structure.
+///
+/// Creates the default directory structure and configuration files
+/// for prompter, including sample profiles and library files.
+/// Only creates files that don't already exist (non-destructive).
+///
+/// # Returns
+/// * `Ok(())` - Initialization completed successfully
+/// * `Err(String)` - Initialization failed
+///
+/// # Errors
+/// Returns an error if:
+/// - Directory creation fails
+/// - File writing fails
+/// - HOME environment variable is not set
+///
+/// # Panics
+/// Panics if the progress bar template is invalid (should not happen with the
+/// hardcoded template string).
 pub fn init_scaffold() -> Result<(), String> {
+    let pb = if is_terminal() {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+                .template("{spinner:.green} {msg}")
+                .unwrap(),
+        );
+        pb.set_message("Initializing prompter...");
+        pb.enable_steady_tick(std::time::Duration::from_millis(120));
+        Some(pb)
+    } else {
+        None
+    };
+
     let cfg_path = config_path()?;
-    let cfg_dir = cfg_path.parent().ok_or_else(|| "Invalid config path".to_string())?;
-    fs::create_dir_all(cfg_dir).map_err(|e| format!("Failed to create {}: {}", cfg_dir.display(), e))?;
+    let cfg_dir = cfg_path
+        .parent()
+        .ok_or_else(|| "Invalid config path".to_string())?;
+
+    if let Some(ref pb) = pb {
+        pb.set_message("Creating config directory...");
+    }
+    fs::create_dir_all(cfg_dir)
+        .map_err(|e| format!("Failed to create {}: {}", cfg_dir.display(), e))?;
 
     let lib = library_dir()?;
+    if let Some(ref pb) = pb {
+        pb.set_message("Creating library directory...");
+    }
     fs::create_dir_all(&lib).map_err(|e| format!("Failed to create {}: {}", lib.display(), e))?;
 
     if !cfg_path.exists() {
+        if let Some(ref pb) = pb {
+            pb.set_message("Writing default config...");
+        }
         let default_cfg = r#"# Prompter configuration
 # Profiles map to sets of markdown files and/or other profiles.
 # Files are relative to $HOME/.local/prompter/library
@@ -321,34 +664,88 @@ depends_on = ["a/b/c.md", "f/g/h.md"]
 [general.testing]
 depends_on = ["python.api", "a/b/d.md"]
 "#;
-        fs::write(&cfg_path, default_cfg).map_err(|e| format!("Failed to write {}: {}", cfg_path.display(), e))?;
+        fs::write(&cfg_path, default_cfg)
+            .map_err(|e| format!("Failed to write {}: {}", cfg_path.display(), e))?;
     }
 
     let paths_and_contents: Vec<(PathBuf, &str)> = vec![
-        (lib.join("a/b/c.md"), "# a/b/c.md\nExample snippet for python.api.\n"),
+        (
+            lib.join("a/b/c.md"),
+            "# a/b/c.md\nExample snippet for python.api.\n",
+        ),
         (lib.join("a/b.md"), "# a/b.md\nFolder-level notes.\n"),
-        (lib.join("a/b/d.md"), "# a/b/d.md\nGeneral testing snippet.\n"),
+        (
+            lib.join("a/b/d.md"),
+            "# a/b/d.md\nGeneral testing snippet.\n",
+        ),
         (lib.join("f/g/h.md"), "# f/g/h.md\nShared helper snippet.\n"),
     ];
 
     for (path, contents) in paths_and_contents {
-        if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?; }
+        if let Some(ref pb) = pb {
+            pb.set_message(format!(
+                "Creating {}",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            ));
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
+        }
         if !path.exists() {
-            fs::write(&path, contents).map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+            fs::write(&path, contents)
+                .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
         }
     }
 
-    println!("Initialized config at {}", cfg_path.display());
-    println!("Library root at {}", lib.display());
+    if let Some(pb) = pb {
+        pb.finish_with_message("Initialization complete!");
+        std::thread::sleep(std::time::Duration::from_millis(200)); // Brief pause to show completion
+    }
+
+    println!(
+        "{}",
+        success_message(&format!("Initialized config at {}", cfg_path.display()))
+    );
+    println!(
+        "{}",
+        info_message(&format!("Library root at {}", lib.display()))
+    );
     Ok(())
 }
 
+/// List profiles to stdout.
+///
+/// Convenience function that reads configuration and lists all profiles
+/// to standard output.
+///
+/// # Returns
+/// * `Ok(())` - Profiles listed successfully
+/// * `Err(String)` - Operation failed
+///
+/// # Errors
+/// Returns an error if:
+/// - Configuration file cannot be read or parsed
+/// - Writing to stdout fails
 pub fn run_list_stdout() -> Result<(), String> {
     let cfg_text = read_config()?;
     let cfg = parse_config_toml(&cfg_text)?;
     list_profiles(&cfg, io::stdout()).map_err(|e| e.to_string())
 }
 
+/// Validate configuration and output results to stdout.
+///
+/// Convenience function that reads configuration and validates it,
+/// outputting any errors found.
+///
+/// # Returns
+/// * `Ok(())` - Configuration is valid
+/// * `Err(String)` - Validation errors found
+///
+/// # Errors
+/// Returns an error if:
+/// - Configuration file cannot be read or parsed
+/// - Validation finds missing files or circular dependencies
 pub fn run_validate_stdout() -> Result<(), String> {
     let cfg_text = read_config()?;
     let cfg = parse_config_toml(&cfg_text)?;
@@ -356,49 +753,113 @@ pub fn run_validate_stdout() -> Result<(), String> {
     validate(&cfg, &lib)
 }
 
+/// Render a profile's content to a writer.
+///
+/// Resolves profile dependencies and writes the concatenated content
+/// to the provided writer, including pre-prompt, system info, and
+/// file contents with optional separators.
+///
+/// # Arguments
+/// * `cfg` - Configuration containing profile definitions
+/// * `lib` - Library root directory for file resolution
+/// * `w` - Writer to output rendered content to
+/// * `profile` - Profile name to render
+/// * `separator` - Optional separator between files
+/// * `pre_prompt` - Optional custom pre-prompt (defaults to LLM instructions)
+///
+/// # Returns
+/// * `Ok(())` - Profile rendered successfully
+/// * `Err(String)` - Rendering failed
+///
+/// # Errors
+/// Returns an error if:
+/// - Profile resolution fails (missing files, cycles, unknown profiles)
+/// - Writing to output fails
+/// - File reading fails
 pub fn render_to_writer(
     cfg: &Config,
     lib: &Path,
     mut w: impl Write,
     profile: &str,
     separator: Option<&str>,
+    pre_prompt: Option<&str>,
 ) -> Result<(), String> {
     let mut seen_files = HashSet::new();
     let mut stack = Vec::new();
     let mut files = Vec::new();
-    resolve_profile(profile, cfg, lib, &mut seen_files, &mut stack, &mut files)
-        .map_err(|e| match e {
-            ResolveError::UnknownProfile(p) => format!("Unknown profile: {}", p),
+    resolve_profile(profile, cfg, lib, &mut seen_files, &mut stack, &mut files).map_err(
+        |e| match e {
+            ResolveError::UnknownProfile(p) => format!("Unknown profile: {p}"),
             ResolveError::Cycle(c) => format!("Cycle detected: {}", c.join(" -> ")),
-            ResolveError::MissingFile(path, prof) => format!("Missing file: {} (referenced by [{}])", path.display(), prof),
-        })?;
+            ResolveError::MissingFile(path, prof) => format!(
+                "Missing file: {} (referenced by [{}])",
+                path.display(),
+                prof
+            ),
+        },
+    )?;
+
+    // Write pre-prompt (defaults if not provided)
+    let default_pre = default_pre_prompt();
+    let pre_prompt_text = pre_prompt.unwrap_or(&default_pre);
+    w.write_all(pre_prompt_text.as_bytes())
+        .map_err(|e| format!("Write error: {e}"))?;
 
     // Write system prefix
     let prefix = format_system_prefix();
-    w.write_all(prefix.as_bytes()).map_err(|e| format!("Write error: {}", e))?;
+    w.write_all(prefix.as_bytes())
+        .map_err(|e| format!("Write error: {e}"))?;
 
     let mut first = true;
     let sep = separator.unwrap_or("");
     for path in files {
-        if !first && !sep.is_empty() && let Err(e) = w.write_all(sep.as_bytes()) {
-            return Err(format!("Write error: {}", e));
+        if !first
+            && !sep.is_empty()
+            && let Err(e) = w.write_all(sep.as_bytes())
+        {
+            return Err(format!("Write error: {e}"));
         }
         first = false;
         match fs::read(&path) {
-            Ok(bytes) => w.write_all(&bytes).map_err(|e| format!("Write error: {}", e))?,
+            Ok(bytes) => w
+                .write_all(&bytes)
+                .map_err(|e| format!("Write error: {e}"))?,
             Err(e) => return Err(format!("Failed to read {}: {}", path.display(), e)),
         }
     }
     Ok(())
 }
 
-pub fn run_render_stdout(profile: &str, separator: Option<&str>) -> Result<(), String> {
+/// Render a profile to stdout.
+///
+/// Convenience function that reads configuration and renders the specified
+/// profile to standard output with optional separator and pre-prompt.
+///
+/// # Arguments
+/// * `profile` - Profile name to render
+/// * `separator` - Optional separator between files
+/// * `pre_prompt` - Optional custom pre-prompt text
+///
+/// # Returns
+/// * `Ok(())` - Profile rendered successfully
+/// * `Err(String)` - Rendering failed
+///
+/// # Errors
+/// Returns an error if:
+/// - Configuration file cannot be read or parsed
+/// - Profile resolution fails
+/// - Writing to stdout fails
+pub fn run_render_stdout(
+    profile: &str,
+    separator: Option<&str>,
+    pre_prompt: Option<&str>,
+) -> Result<(), String> {
     let cfg_text = read_config()?;
     let cfg = parse_config_toml(&cfg_text)?;
     let lib = library_dir()?;
     let stdout = io::stdout();
     let handle = stdout.lock();
-    render_to_writer(&cfg, &lib, handle, profile, separator)
+    render_to_writer(&cfg, &lib, handle, profile, separator, pre_prompt)
 }
 
 #[cfg(test)]
@@ -429,7 +890,7 @@ mod tests {
 
     #[test]
     fn test_strip_comments_and_brackets_detection() {
-        let s = r#"ab#cd"#;
+        let s = r"ab#cd";
         assert_eq!(strip_comments(s), "ab");
         let s = r#""ab#cd" # trailing"#;
         assert_eq!(strip_comments(s), "\"ab#cd\" ");
@@ -458,39 +919,46 @@ mod tests {
 
     #[test]
     fn test_validate_success_and_unknowns() {
-        let cfg = Config { profiles: HashMap::from([
-            ("p1".into(), vec!["a.md".into()]),
-            ("p2".into(), vec!["p1".into(), "b.md".into()]),
-        ])};
+        let cfg = Config {
+            profiles: HashMap::from([
+                ("p1".into(), vec!["a.md".into()]),
+                ("p2".into(), vec!["p1".into(), "b.md".into()]),
+            ]),
+        };
         let lib = mk_tmp("prompter_validate_ok");
         fs::create_dir_all(&lib).unwrap();
         fs::write(lib.join("a.md"), b"A").unwrap();
         fs::write(lib.join("b.md"), b"B").unwrap();
         assert!(validate(&cfg, &lib).is_ok());
-        let cfg2 = Config { profiles: HashMap::from([
-            ("root".into(), vec!["nope".into()]),
-        ])};
+        let cfg2 = Config {
+            profiles: HashMap::from([("root".into(), vec!["nope".into()])]),
+        };
         let err = validate(&cfg2, &lib).unwrap_err();
         assert!(err.contains("Unknown profile"));
     }
 
     #[test]
     fn test_resolve_errors_and_dedup() {
-        let cfg = Config { profiles: HashMap::from([
-            ("root".into(), vec!["missing.md".into()]),
-        ])};
+        let cfg = Config {
+            profiles: HashMap::from([("root".into(), vec!["missing.md".into()])]),
+        };
         let lib = mk_tmp("prompter_resolve_errs");
         fs::create_dir_all(&lib).unwrap();
         let mut seen = HashSet::new();
         let mut stack = Vec::new();
         let mut out = Vec::new();
         let err = resolve_profile("root", &cfg, &lib, &mut seen, &mut stack, &mut out).unwrap_err();
-        match err { ResolveError::MissingFile(_, p) => assert_eq!(p, "root"), _ => panic!("expected missing file") }
+        match err {
+            ResolveError::MissingFile(_, p) => assert_eq!(p, "root"),
+            _ => panic!("expected missing file"),
+        }
 
-        let cfg2 = Config { profiles: HashMap::from([
-            ("A".into(), vec!["a/b.md".into()]),
-            ("B".into(), vec!["A".into(), "a/b.md".into()]),
-        ])};
+        let cfg2 = Config {
+            profiles: HashMap::from([
+                ("A".into(), vec!["a/b.md".into()]),
+                ("B".into(), vec!["A".into(), "a/b.md".into()]),
+            ]),
+        };
         fs::create_dir_all(lib.join("a")).unwrap();
         fs::write(lib.join("a/b.md"), b"X").unwrap();
         let mut seen = HashSet::new();
@@ -505,31 +973,22 @@ mod tests {
         // unknown flag
         let args = vec!["prompter".into(), "--bogus".into()];
         let err = parse_args_from(args).unwrap_err();
-        assert!(err.contains("Unknown flag"));
+        assert!(err.contains("unexpected argument"));
         // missing separator value
         let args = vec!["prompter".into(), "--separator".into()];
         let err = parse_args_from(args).unwrap_err();
-        assert!(err.contains("requires a value"));
-        // unexpected positional after mode
-        let args = vec!["prompter".into(), "--list".into(), "foo".into()];
-        let err = parse_args_from(args).unwrap_err();
-        assert!(err.contains("Unexpected positional"));
-        // too many positionals
-        let args = vec!["prompter".into(), "foo".into(), "bar".into()];
-        let err = parse_args_from(args).unwrap_err();
-        assert!(err.contains("Too many positional"));
-        // no action specified
+        assert!(err.contains("value is required"));
+        // no action specified (should default to help)
         let args = vec!["prompter".into()];
-        let err = parse_args_from(args).unwrap_err();
-        assert!(err.contains("No action"));
+        let mode = parse_args_from(args).unwrap();
+        assert!(matches!(mode, AppMode::Help));
     }
 
     #[test]
     fn test_list_profiles_order() {
-        let cfg = Config { profiles: HashMap::from([
-            ("b".into(), vec![]),
-            ("a".into(), vec![]),
-        ])};
+        let cfg = Config {
+            profiles: HashMap::from([("b".into(), vec![]), ("a".into(), vec![])]),
+        };
         let mut out = Vec::new();
         super::list_profiles(&cfg, &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "a\nb\n");
@@ -537,10 +996,12 @@ mod tests {
 
     #[test]
     fn test_validate_cycle_detected() {
-        let cfg = Config { profiles: HashMap::from([
-            ("A".into(), vec!["B".into()]),
-            ("B".into(), vec!["A".into()]),
-        ])};
+        let cfg = Config {
+            profiles: HashMap::from([
+                ("A".into(), vec!["B".into()]),
+                ("B".into(), vec!["A".into()]),
+            ]),
+        };
         let lib = mk_tmp("prompter_cycle");
         fs::create_dir_all(&lib).unwrap();
         let err = validate(&cfg, &lib).unwrap_err();
@@ -570,16 +1031,23 @@ depends_on = [
         fs::write(lib.join("a/x.md"), b"AX\n").unwrap();
         fs::write(lib.join("f/y.md"), b"FY\n").unwrap();
         // config with nested profile and duplicate file reference
-        let cfg = Config { profiles: HashMap::from([
-            ("child".into(), vec!["a/x.md".into()]),
-            ("root".into(), vec!["child".into(), "f/y.md".into(), "a/x.md".into()]),
-        ])};
+        let cfg = Config {
+            profiles: HashMap::from([
+                ("child".into(), vec!["a/x.md".into()]),
+                (
+                    "root".into(),
+                    vec!["child".into(), "f/y.md".into(), "a/x.md".into()],
+                ),
+            ]),
+        };
         let mut out = Vec::new();
-        super::render_to_writer(&cfg, &lib, &mut out, "root", Some("\n--\n")).unwrap();
-        
+        super::render_to_writer(&cfg, &lib, &mut out, "root", Some("\n--\n"), None).unwrap();
+
         let output_str = String::from_utf8(out).unwrap();
-        // Should start with prefix containing date and system info
-        assert!(output_str.starts_with("Today is "));
+        // Should start with default pre-prompt
+        assert!(output_str.starts_with("You are an LLM coding agent."));
+        // Should contain system prefix
+        assert!(output_str.contains("Today is "));
         assert!(output_str.contains(", and you are running on a "));
         assert!(output_str.contains(" system.\n\n"));
         // Should contain the file contents with separator
@@ -591,6 +1059,36 @@ depends_on = [
     }
 
     #[test]
+    fn test_render_to_writer_custom_pre_prompt() {
+        // library and files
+        let lib = mk_tmp("prompter_render_custom_pre");
+        fs::create_dir_all(lib.join("a")).unwrap();
+        fs::write(lib.join("a/x.md"), b"Content\n").unwrap();
+        // config
+        let cfg = Config {
+            profiles: HashMap::from([("test".into(), vec!["a/x.md".into()])]),
+        };
+        let mut out = Vec::new();
+        super::render_to_writer(
+            &cfg,
+            &lib,
+            &mut out,
+            "test",
+            None,
+            Some("Custom pre-prompt\n\n"),
+        )
+        .unwrap();
+
+        let output_str = String::from_utf8(out).unwrap();
+        // Should start with custom pre-prompt
+        assert!(output_str.starts_with("Custom pre-prompt\n\n"));
+        // Should contain system prefix
+        assert!(output_str.contains("Today is "));
+        // Should contain file content
+        assert!(output_str.contains("Content\n"));
+    }
+
+    #[test]
     fn test_array_items_escaped_backslash() {
         let s = r#"["a\\"]"#; // a single backslash in content
         let items = parse_array_items(s).unwrap();
@@ -599,21 +1097,51 @@ depends_on = [
 
     #[test]
     fn test_parse_args_from() {
-        let args = vec!["prompter".into(), "--separator".into(), "\\n--\\n".into(), "profile".into()];
+        let args = vec![
+            "prompter".into(),
+            "--separator".into(),
+            "\\n--\\n".into(),
+            "profile".into(),
+        ];
         match parse_args_from(args).unwrap() {
-            AppMode::Run { profile, separator } => {
+            AppMode::Run {
+                profile,
+                separator,
+                pre_prompt,
+            } => {
                 assert_eq!(profile, "profile");
                 assert_eq!(separator, Some("\n--\n".into()));
+                assert_eq!(pre_prompt, None);
             }
             _ => panic!("expected run"),
         }
-        let args = vec!["prompter".into(), "--list".into()];
+
+        let args = vec![
+            "prompter".into(),
+            "--pre-prompt".into(),
+            "Custom pre-prompt".into(),
+            "profile".into(),
+        ];
+        match parse_args_from(args).unwrap() {
+            AppMode::Run {
+                profile,
+                separator,
+                pre_prompt,
+            } => {
+                assert_eq!(profile, "profile");
+                assert_eq!(separator, None);
+                assert_eq!(pre_prompt, Some("Custom pre-prompt".into()));
+            }
+            _ => panic!("expected run"),
+        }
+
+        let args = vec!["prompter".into(), "list".into()];
         assert!(matches!(parse_args_from(args).unwrap(), AppMode::List));
-        let args = vec!["prompter".into(), "--validate".into()];
+        let args = vec!["prompter".into(), "validate".into()];
         assert!(matches!(parse_args_from(args).unwrap(), AppMode::Validate));
-        let args = vec!["prompter".into(), "--init".into()];
+        let args = vec!["prompter".into(), "init".into()];
         assert!(matches!(parse_args_from(args).unwrap(), AppMode::Init));
-        let args = vec!["prompter".into(), "--version".into()];
+        let args = vec!["prompter".into(), "version".into()];
         assert!(matches!(parse_args_from(args).unwrap(), AppMode::Version));
     }
 
@@ -626,12 +1154,14 @@ depends_on = [
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             self.writes_done += 1;
             if self.writes_done == self.fail_on {
-                Err(io::Error::new(io::ErrorKind::Other, "synthetic write failure"))
+                Err(io::Error::other("synthetic write failure"))
             } else {
                 Ok(buf.len())
             }
         }
-        fn flush(&mut self) -> io::Result<()> { Ok(()) }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
     }
 
     #[test]
@@ -640,12 +1170,15 @@ depends_on = [
         fs::create_dir_all(lib.join("a")).unwrap();
         fs::write(lib.join("a/x.md"), b"AX").unwrap();
         fs::write(lib.join("a/y.md"), b"AY").unwrap();
-        let cfg = Config { profiles: HashMap::from([
-            ("p".into(), vec!["a/x.md".into(), "a/y.md".into()]),
-        ])};
-        let mut w = FailAfterN { writes_done: 0, fail_on: 2 }; // first file ok, fail on separator
-        let err = super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--")).unwrap_err();
-        assert!(err.contains("Write error"), "err={}", err);
+        let cfg = Config {
+            profiles: HashMap::from([("p".into(), vec!["a/x.md".into(), "a/y.md".into()])]),
+        };
+        let mut w = FailAfterN {
+            writes_done: 0,
+            fail_on: 3,
+        }; // pre-prompt ok, system prefix ok, fail on separator
+        let err = super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--"), None).unwrap_err();
+        assert!(err.contains("Write error"), "err={err}");
     }
 
     #[test]
@@ -653,15 +1186,19 @@ depends_on = [
         let lib = mk_tmp("prompter_write_err_file");
         fs::create_dir_all(lib.join("a")).unwrap();
         fs::write(lib.join("a/x.md"), b"AX").unwrap();
-        let cfg = Config { profiles: HashMap::from([
-            ("p".into(), vec!["a/x.md".into()]),
-        ])};
-        let mut w = FailAfterN { writes_done: 0, fail_on: 1 }; // fail on first write (file content)
-        let err = super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--")).unwrap_err();
-        assert!(err.contains("Write error"), "err={}", err);
+        let cfg = Config {
+            profiles: HashMap::from([("p".into(), vec!["a/x.md".into()])]),
+        };
+        let mut w = FailAfterN {
+            writes_done: 0,
+            fail_on: 1,
+        }; // fail on first write (pre-prompt)
+        let err = super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--"), None).unwrap_err();
+        assert!(err.contains("Write error"), "err={err}");
     }
 
     #[test]
+    #[allow(unsafe_code)]
     fn test_run_list_and_validate_with_home_injection() {
         let home = mk_tmp("prompter_home_unit_ok");
         let cfg_dir = home.join(".config/prompter");
@@ -680,13 +1217,24 @@ depends_on = ["child", "f/y.md"]
 "#;
         fs::write(cfg_dir.join("config.toml"), cfg).unwrap();
         let prev_home = env::var("HOME").ok();
-        unsafe { env::set_var("HOME", &home); }
+        unsafe {
+            env::set_var("HOME", &home);
+        }
         assert!(super::run_validate_stdout().is_ok());
         assert!(super::run_list_stdout().is_ok());
-        if let Some(prev) = prev_home { unsafe { env::set_var("HOME", prev); } } else { unsafe { env::remove_var("HOME"); } }
+        if let Some(prev) = prev_home {
+            unsafe {
+                env::set_var("HOME", prev);
+            }
+        } else {
+            unsafe {
+                env::remove_var("HOME");
+            }
+        }
     }
 
     #[test]
+    #[allow(unsafe_code)]
     fn test_run_validate_with_home_injection_failure() {
         let home = mk_tmp("prompter_home_unit_bad");
         let cfg_dir = home.join(".config/prompter");
@@ -699,9 +1247,22 @@ depends_on = ["missing.md", "unknown_profile"]
 "#;
         fs::write(cfg_dir.join("config.toml"), cfg).unwrap();
         let prev_home = env::var("HOME").ok();
-        unsafe { env::set_var("HOME", &home); }
+        unsafe {
+            env::set_var("HOME", &home);
+        }
         let err = super::run_validate_stdout().unwrap_err();
-        assert!(err.contains("Missing file") && err.contains("Unknown profile"), "err={}", err);
-        if let Some(prev) = prev_home { unsafe { env::set_var("HOME", prev); } } else { unsafe { env::remove_var("HOME"); } }
+        assert!(
+            err.contains("Missing file") && err.contains("Unknown profile"),
+            "err={err}"
+        );
+        if let Some(prev) = prev_home {
+            unsafe {
+                env::set_var("HOME", prev);
+            }
+        } else {
+            unsafe {
+                env::remove_var("HOME");
+            }
+        }
     }
 }

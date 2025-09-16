@@ -199,11 +199,11 @@ jobs:
         run: chmod +x ./bin/prompter
 
       - name: Basic smoke
-        run: ./bin/prompter --version
+        run: ./bin/prompter version
 
       - name: End-to-end test
         run: |
-          ./bin/prompter --init
-          ./bin/prompter --list
-          ./bin/prompter --validate
+          ./bin/prompter init
+          ./bin/prompter list
+          ./bin/prompter validate
           ./bin/prompter python.api -s "\n---\n"

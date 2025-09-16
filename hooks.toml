@@ -1,0 +1,106 @@
+# Peter-hook configuration for prompter project
+# Comprehensive linting setup with aggressive quality checks
+
+# TOML linting hooks
+[hooks.toml-format]
+command = "taplo format --check"
+modifies_repository = false
+files = ["**/*.toml"]
+description = "Check TOML file formatting"
+
+[hooks.toml-lint]
+command = "taplo check"
+modifies_repository = false
+files = ["**/*.toml"]
+depends_on = ["toml-format"]
+description = "Lint TOML files"
+
+# Rust formatting and compilation
+[hooks.rust-format]
+command = "cargo fmt -- --check"
+modifies_repository = false
+files = ["**/*.rs", "Cargo.toml"]
+description = "Check Rust code formatting"
+
+[hooks.cargo-check]
+command = "cargo check --all-targets --all-features"
+modifies_repository = false
+files = ["**/*.rs", "Cargo.toml"]
+depends_on = ["rust-format"]
+description = "Check compilation"
+
+# Aggressive clippy linting (using workspace configuration)
+[hooks.clippy-aggressive]
+command = "cargo clippy --all-targets --all-features -- -D warnings"
+modifies_repository = false
+files = ["**/*.rs", "Cargo.toml"]
+depends_on = ["cargo-check"]
+description = "Aggressive clippy linting"
+
+# Security auditing
+[hooks.cargo-audit]
+command = "cargo audit"
+modifies_repository = false
+run_always = true
+description = "Security vulnerability scan"
+
+[hooks.cargo-deny]
+command = "cargo deny check"
+modifies_repository = false
+files = ["Cargo.toml", "Cargo.lock", "deny.toml"]
+depends_on = ["cargo-audit"]
+description = "Dependency compliance check"
+
+[hooks.unused-deps]
+command = "cargo machete"
+modifies_repository = false
+files = ["Cargo.toml"]
+description = "Check for unused dependencies"
+
+# Documentation and testing
+[hooks.doc-check]
+command = "cargo doc --no-deps --document-private-items --all-features"
+modifies_repository = false
+files = ["**/*.rs"]
+env = { RUSTDOCFLAGS = "-D warnings -D rustdoc::broken_intra_doc_links" }
+description = "Documentation check"
+
+[hooks.test-suite]
+command = "cargo test --all-features"
+modifies_repository = false
+files = ["**/*.rs", "Cargo.toml"]
+depends_on = ["clippy-aggressive"]
+description = "Run test suite"
+
+# Pre-commit group - comprehensive checks
+[groups.pre-commit]
+includes = [
+  "toml-format",
+  "toml-lint",
+  "rust-format",
+  "cargo-check",
+  "clippy-aggressive",
+  "cargo-audit",
+  "cargo-deny",
+  "unused-deps",
+  "doc-check",
+  "test-suite",
+]
+execution = "sequential"
+description = "Comprehensive pre-commit checks"
+
+# Commit message validation
+[hooks.commit-msg-length]
+command = "sh"
+args = [
+  "-c",
+  "head -n1 \"$1\" | wc -c | awk '{if ($1 > 72) {print \"Commit message too long\"; exit 1}}'",
+  "--",
+]
+modifies_repository = false
+description = "Check commit message length"
+
+[groups.commit-msg]
+includes = ["commit-msg-length"]
+execution = "sequential"
+description = "Commit message validation"

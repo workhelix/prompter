@@ -8,9 +8,28 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git tag:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "mcp__mcp-sequentialthinking-tools__sequentialthinking_tools",
+      "Bash(./target/debug/prompter:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo install:*)",
+      "Bash(cargo deny:*)",
+      "Bash(/Users/jfb/Projects/peter-hook/target/release/peter-hook install:*)",
+      "Bash(taplo format:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo audit:*)",
+      "Bash(cargo machete:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(git reset:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo doc:*)",
+      "Bash(taplo check:*)",
+      "Bash(RUSTDOCFLAGS=\"-D warnings -D rustdoc::broken_intra_doc_links\" cargo doc --no-deps --document-private-items --all-features)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "/Users/jfb/Projects/peter-hook"
+    ]
   }
 }
