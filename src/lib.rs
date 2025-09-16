@@ -23,6 +23,8 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     /// Map of profile names to their dependency lists
     pub(crate) profiles: HashMap<String, Vec<String>>,
+    /// Optional post-prompt text to append at the end of output
+    pub(crate) post_prompt: Option<String>,
 }
 
 /// Command-line interface structure for the prompter tool.
@@ -49,6 +51,10 @@ pub struct Cli {
     /// Pre-prompt text to inject at the beginning
     #[arg(short = 'p', long, value_name = "TEXT")]
     pub pre_prompt: Option<String>,
+
+    /// Post-prompt text to inject at the end
+    #[arg(short = 'P', long, value_name = "TEXT")]
+    pub post_prompt: Option<String>,
 }
 
 /// Available subcommands for the prompter CLI.
@@ -74,6 +80,9 @@ pub enum Commands {
         /// Pre-prompt text to inject at the beginning
         #[arg(short = 'p', long)]
         pre_prompt: Option<String>,
+        /// Post-prompt text to inject at the end
+        #[arg(short = 'P', long)]
+        post_prompt: Option<String>,
     },
 }
 
@@ -91,6 +100,8 @@ pub enum AppMode {
         separator: Option<String>,
         /// Optional custom pre-prompt text
         pre_prompt: Option<String>,
+        /// Optional custom post-prompt text
+        post_prompt: Option<String>,
     },
     /// List all available profiles
     List,
@@ -135,6 +146,7 @@ pub fn parse_args_from(args: Vec<String>) -> Result<AppMode, String> {
                 profile,
                 separator,
                 pre_prompt,
+                post_prompt,
             }),
             _,
         ) => {
@@ -146,19 +158,26 @@ pub fn parse_args_from(args: Vec<String>) -> Result<AppMode, String> {
                 .as_ref()
                 .or(cli.pre_prompt.as_ref())
                 .map(|s| unescape(s));
+            let post = post_prompt
+                .as_ref()
+                .or(cli.post_prompt.as_ref())
+                .map(|s| unescape(s));
             Ok(AppMode::Run {
                 profile: profile.clone(),
                 separator: sep,
                 pre_prompt: pre,
+                post_prompt: post,
             })
         }
         (None, Some(profile)) => {
             let sep = cli.separator.as_ref().map(|s| unescape(s));
             let pre = cli.pre_prompt.as_ref().map(|s| unescape(s));
+            let post = cli.post_prompt.as_ref().map(|s| unescape(s));
             Ok(AppMode::Run {
                 profile: profile.clone(),
                 separator: sep,
                 pre_prompt: pre,
+                post_prompt: post,
             })
         }
         (None, None) => Ok(AppMode::Help),
@@ -228,6 +247,10 @@ fn default_pre_prompt() -> String {
     "You are an LLM coding agent. Here are invariants that you must adhere to. Please respond with 'Got it' when you have studied these and understand them. At that point, the operator will give you further instructions. You are *not* to do anything to the contents of this directory until you have been explicitly asked to, by the operator.\n\n".to_string()
 }
 
+fn default_post_prompt() -> String {
+    "Now, read the @AGENTS.md and @CLAUDE.md files in this directory, if they exist.".to_string()
+}
+
 fn format_system_prefix() -> String {
     let date = Local::now().format("%Y-%m-%d").to_string();
     let os = env::consts::OS;
@@ -286,6 +309,7 @@ fn read_config() -> Result<String, String> {
 pub fn parse_config_toml(input: &str) -> Result<Config, String> {
     let mut profiles: HashMap<String, Vec<String>> = HashMap::new();
     let mut current: Option<String> = None;
+    let mut post_prompt: Option<String> = None;
 
     let mut collecting = false;
     let mut buffer = String::new();
@@ -329,6 +353,16 @@ pub fn parse_config_toml(input: &str) -> Result<Config, String> {
         if let Some(eq_pos) = line.find('=') {
             let key = line[..eq_pos].trim();
             let value = line[eq_pos + 1..].trim();
+
+            if key == "post_prompt" {
+                if !value.starts_with('"') || !value.ends_with('"') {
+                    return Err("post_prompt must be a string".into());
+                }
+                let unquoted = &value[1..value.len() - 1];
+                post_prompt = Some(unescape(unquoted));
+                continue;
+            }
+
             if key != "depends_on" {
                 continue;
             }
@@ -356,7 +390,10 @@ pub fn parse_config_toml(input: &str) -> Result<Config, String> {
         }
     }
 
-    Ok(Config { profiles })
+    Ok(Config {
+        profiles,
+        post_prompt,
+    })
 }
 
 fn strip_comments(s: &str) -> String {
@@ -756,8 +793,8 @@ pub fn run_validate_stdout() -> Result<(), String> {
 /// Render a profile's content to a writer.
 ///
 /// Resolves profile dependencies and writes the concatenated content
-/// to the provided writer, including pre-prompt, system info, and
-/// file contents with optional separators.
+/// to the provided writer, including pre-prompt, system info, file
+/// contents with optional separators, and post-prompt.
 ///
 /// # Arguments
 /// * `cfg` - Configuration containing profile definitions
@@ -766,6 +803,7 @@ pub fn run_validate_stdout() -> Result<(), String> {
 /// * `profile` - Profile name to render
 /// * `separator` - Optional separator between files
 /// * `pre_prompt` - Optional custom pre-prompt (defaults to LLM instructions)
+/// * `post_prompt` - Optional custom post-prompt (defaults to @AGENTS/@CLAUDE instructions)
 ///
 /// # Returns
 /// * `Ok(())` - Profile rendered successfully
@@ -783,6 +821,7 @@ pub fn render_to_writer(
     profile: &str,
     separator: Option<&str>,
     pre_prompt: Option<&str>,
+    post_prompt: Option<&str>,
 ) -> Result<(), String> {
     let mut seen_files = HashSet::new();
     let mut stack = Vec::new();
@@ -805,40 +844,58 @@ pub fn render_to_writer(
     w.write_all(pre_prompt_text.as_bytes())
         .map_err(|e| format!("Write error: {e}"))?;
 
-    // Write system prefix
+    // Write system prefix with two newlines before
+    w.write_all(b"\n")
+        .map_err(|e| format!("Write error: {e}"))?;
     let prefix = format_system_prefix();
     w.write_all(prefix.as_bytes())
         .map_err(|e| format!("Write error: {e}"))?;
 
-    let mut first = true;
     let sep = separator.unwrap_or("");
     for path in files {
-        if !first
-            && !sep.is_empty()
-            && let Err(e) = w.write_all(sep.as_bytes())
-        {
-            return Err(format!("Write error: {e}"));
-        }
-        first = false;
+        // Two newlines before each file
+        w.write_all(b"\n")
+            .map_err(|e| format!("Write error: {e}"))?;
+
         match fs::read(&path) {
             Ok(bytes) => w
                 .write_all(&bytes)
                 .map_err(|e| format!("Write error: {e}"))?,
             Err(e) => return Err(format!("Failed to read {}: {}", path.display(), e)),
         }
+
+        // Write separator after each file if provided
+        if !sep.is_empty() {
+            w.write_all(sep.as_bytes())
+                .map_err(|e| format!("Write error: {e}"))?;
+        }
     }
+
+    // Write post-prompt (defaults if not provided)
+    let default_post = default_post_prompt();
+    let post_prompt_text = post_prompt
+        .or(cfg.post_prompt.as_deref())
+        .unwrap_or(&default_post);
+
+    // Two newlines before post-prompt
+    w.write_all(b"\n\n")
+        .map_err(|e| format!("Write error: {e}"))?;
+    w.write_all(post_prompt_text.as_bytes())
+        .map_err(|e| format!("Write error: {e}"))?;
+
     Ok(())
 }
 
 /// Render a profile to stdout.
 ///
 /// Convenience function that reads configuration and renders the specified
-/// profile to standard output with optional separator and pre-prompt.
+/// profile to standard output with optional separator, pre-prompt, and post-prompt.
 ///
 /// # Arguments
 /// * `profile` - Profile name to render
 /// * `separator` - Optional separator between files
 /// * `pre_prompt` - Optional custom pre-prompt text
+/// * `post_prompt` - Optional custom post-prompt text
 ///
 /// # Returns
 /// * `Ok(())` - Profile rendered successfully
@@ -853,13 +910,22 @@ pub fn run_render_stdout(
     profile: &str,
     separator: Option<&str>,
     pre_prompt: Option<&str>,
+    post_prompt: Option<&str>,
 ) -> Result<(), String> {
     let cfg_text = read_config()?;
     let cfg = parse_config_toml(&cfg_text)?;
     let lib = library_dir()?;
     let stdout = io::stdout();
     let handle = stdout.lock();
-    render_to_writer(&cfg, &lib, handle, profile, separator, pre_prompt)
+    render_to_writer(
+        &cfg,
+        &lib,
+        handle,
+        profile,
+        separator,
+        pre_prompt,
+        post_prompt,
+    )
 }
 
 #[cfg(test)]
@@ -924,6 +990,7 @@ mod tests {
                 ("p1".into(), vec!["a.md".into()]),
                 ("p2".into(), vec!["p1".into(), "b.md".into()]),
             ]),
+            post_prompt: None,
         };
         let lib = mk_tmp("prompter_validate_ok");
         fs::create_dir_all(&lib).unwrap();
@@ -932,6 +999,7 @@ mod tests {
         assert!(validate(&cfg, &lib).is_ok());
         let cfg2 = Config {
             profiles: HashMap::from([("root".into(), vec!["nope".into()])]),
+            post_prompt: None,
         };
         let err = validate(&cfg2, &lib).unwrap_err();
         assert!(err.contains("Unknown profile"));
@@ -941,6 +1009,7 @@ mod tests {
     fn test_resolve_errors_and_dedup() {
         let cfg = Config {
             profiles: HashMap::from([("root".into(), vec!["missing.md".into()])]),
+            post_prompt: None,
         };
         let lib = mk_tmp("prompter_resolve_errs");
         fs::create_dir_all(&lib).unwrap();
@@ -958,6 +1027,7 @@ mod tests {
                 ("A".into(), vec!["a/b.md".into()]),
                 ("B".into(), vec!["A".into(), "a/b.md".into()]),
             ]),
+            post_prompt: None,
         };
         fs::create_dir_all(lib.join("a")).unwrap();
         fs::write(lib.join("a/b.md"), b"X").unwrap();
@@ -988,6 +1058,7 @@ mod tests {
     fn test_list_profiles_order() {
         let cfg = Config {
             profiles: HashMap::from([("b".into(), vec![]), ("a".into(), vec![])]),
+            post_prompt: None,
         };
         let mut out = Vec::new();
         super::list_profiles(&cfg, &mut out).unwrap();
@@ -1001,6 +1072,7 @@ mod tests {
                 ("A".into(), vec!["B".into()]),
                 ("B".into(), vec!["A".into()]),
             ]),
+            post_prompt: None,
         };
         let lib = mk_tmp("prompter_cycle");
         fs::create_dir_all(&lib).unwrap();
@@ -1039,9 +1111,10 @@ depends_on = [
                     vec!["child".into(), "f/y.md".into(), "a/x.md".into()],
                 ),
             ]),
+            post_prompt: None,
         };
         let mut out = Vec::new();
-        super::render_to_writer(&cfg, &lib, &mut out, "root", Some("\n--\n"), None).unwrap();
+        super::render_to_writer(&cfg, &lib, &mut out, "root", Some("\n--\n"), None, None).unwrap();
 
         let output_str = String::from_utf8(out).unwrap();
         // Should start with default pre-prompt
@@ -1054,8 +1127,10 @@ depends_on = [
         assert!(output_str.contains("AX\n"));
         assert!(output_str.contains("\n--\n"));
         assert!(output_str.contains("FY\n"));
-        // Should end with the file content (FY\n)
-        assert!(output_str.ends_with("FY\n"));
+        // Should end with default post-prompt
+        assert!(output_str.ends_with(
+            "Now, read the @AGENTS.md and @CLAUDE.md files in this directory, if they exist."
+        ));
     }
 
     #[test]
@@ -1067,6 +1142,7 @@ depends_on = [
         // config
         let cfg = Config {
             profiles: HashMap::from([("test".into(), vec!["a/x.md".into()])]),
+            post_prompt: None,
         };
         let mut out = Vec::new();
         super::render_to_writer(
@@ -1076,6 +1152,7 @@ depends_on = [
             "test",
             None,
             Some("Custom pre-prompt\n\n"),
+            None,
         )
         .unwrap();
 
@@ -1086,6 +1163,62 @@ depends_on = [
         assert!(output_str.contains("Today is "));
         // Should contain file content
         assert!(output_str.contains("Content\n"));
+        // Should end with default post-prompt
+        assert!(output_str.ends_with(
+            "Now, read the @AGENTS.md and @CLAUDE.md files in this directory, if they exist."
+        ));
+    }
+
+    #[test]
+    fn test_render_to_writer_custom_post_prompt() {
+        // library and files
+        let lib = mk_tmp("prompter_render_custom_post");
+        fs::create_dir_all(lib.join("a")).unwrap();
+        fs::write(lib.join("a/x.md"), b"Content\n").unwrap();
+        // config with custom post_prompt
+        let cfg = Config {
+            profiles: HashMap::from([("test".into(), vec!["a/x.md".into()])]),
+            post_prompt: Some("Custom config post-prompt".to_string()),
+        };
+        let mut out = Vec::new();
+        super::render_to_writer(&cfg, &lib, &mut out, "test", None, None, None).unwrap();
+
+        let output_str = String::from_utf8(out).unwrap();
+        // Should end with config post-prompt
+        assert!(output_str.ends_with("Custom config post-prompt"));
+
+        // Test CLI post-prompt overriding config
+        let mut out2 = Vec::new();
+        super::render_to_writer(
+            &cfg,
+            &lib,
+            &mut out2,
+            "test",
+            None,
+            None,
+            Some("CLI post-prompt"),
+        )
+        .unwrap();
+
+        let output_str2 = String::from_utf8(out2).unwrap();
+        // Should end with CLI post-prompt
+        assert!(output_str2.ends_with("CLI post-prompt"));
+    }
+
+    #[test]
+    fn test_parse_config_with_post_prompt() {
+        let cfg = r#"
+post_prompt = "Custom post prompt from config"
+
+[profile]
+depends_on = ["file.md"]
+"#;
+        let parsed = parse_config_toml(cfg).unwrap();
+        assert_eq!(
+            parsed.post_prompt,
+            Some("Custom post prompt from config".to_string())
+        );
+        assert_eq!(parsed.profiles.get("profile").unwrap().len(), 1);
     }
 
     #[test]
@@ -1108,10 +1241,12 @@ depends_on = [
                 profile,
                 separator,
                 pre_prompt,
+                post_prompt,
             } => {
                 assert_eq!(profile, "profile");
                 assert_eq!(separator, Some("\n--\n".into()));
                 assert_eq!(pre_prompt, None);
+                assert_eq!(post_prompt, None);
             }
             _ => panic!("expected run"),
         }
@@ -1127,10 +1262,12 @@ depends_on = [
                 profile,
                 separator,
                 pre_prompt,
+                post_prompt,
             } => {
                 assert_eq!(profile, "profile");
                 assert_eq!(separator, None);
                 assert_eq!(pre_prompt, Some("Custom pre-prompt".into()));
+                assert_eq!(post_prompt, None);
             }
             _ => panic!("expected run"),
         }
@@ -1172,12 +1309,14 @@ depends_on = [
         fs::write(lib.join("a/y.md"), b"AY").unwrap();
         let cfg = Config {
             profiles: HashMap::from([("p".into(), vec!["a/x.md".into(), "a/y.md".into()])]),
+            post_prompt: None,
         };
         let mut w = FailAfterN {
             writes_done: 0,
             fail_on: 3,
         }; // pre-prompt ok, system prefix ok, fail on separator
-        let err = super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--"), None).unwrap_err();
+        let err =
+            super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--"), None, None).unwrap_err();
         assert!(err.contains("Write error"), "err={err}");
     }
 
@@ -1188,12 +1327,14 @@ depends_on = [
         fs::write(lib.join("a/x.md"), b"AX").unwrap();
         let cfg = Config {
             profiles: HashMap::from([("p".into(), vec!["a/x.md".into()])]),
+            post_prompt: None,
         };
         let mut w = FailAfterN {
             writes_done: 0,
             fail_on: 1,
         }; // fail on first write (pre-prompt)
-        let err = super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--"), None).unwrap_err();
+        let err =
+            super::render_to_writer(&cfg, &lib, &mut w, "p", Some("--"), None, None).unwrap_err();
         assert!(err.contains("Write error"), "err={err}");
     }
 

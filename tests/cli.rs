@@ -87,7 +87,7 @@ fn test_init_list_validate_run() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // Check output contains expected content (pre-prompt + prefix + file contents)
+    // Check output contains expected content (pre-prompt + prefix + file contents + post-prompt)
     let output_str = String::from_utf8_lossy(&out.stdout);
     // Should start with default pre-prompt
     assert!(output_str.starts_with("You are an LLM coding agent."));
@@ -103,6 +103,10 @@ fn test_init_list_validate_run() {
     let h_content = String::from_utf8_lossy(&h_bytes);
     assert!(output_str.contains(&*c_content));
     assert!(output_str.contains(&*h_content));
+    // Should end with default post-prompt
+    assert!(output_str.ends_with(
+        "Now, read the @AGENTS.md and @CLAUDE.md files in this directory, if they exist."
+    ));
 }
 
 #[test]
@@ -186,8 +190,10 @@ depends_on = ["child", "f/y.md", "a/x.md"]
     assert!(output_str.contains("AX\n"));
     assert!(output_str.contains("\n--\n"));
     assert!(output_str.contains("FY\n"));
-    // Should end with FY\n (after prefix and AX\n\n--\n)
-    assert!(output_str.ends_with("FY\n"));
+    // Should end with the default post-prompt
+    assert!(output_str.ends_with(
+        "Now, read the @AGENTS.md and @CLAUDE.md files in this directory, if they exist."
+    ));
 }
 
 #[test]
