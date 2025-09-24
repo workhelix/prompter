@@ -1,8 +1,8 @@
 [package]
 name = "prompter"
-version = "1.0.5"
+version = "1.0.6"
 edition = "2024"
-rust-version = "1.70.0"
+rust-version = "1.85.0"
 license = "MIT"
 description = "A CLI tool for composing reusable prompt snippets from a library using TOML profiles"
 repository = "https://github.com/workhelix/prompter"

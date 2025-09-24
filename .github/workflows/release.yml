@@ -22,8 +22,7 @@ jobs:
         run: |
           gh release create ${{ steps.version.outputs.version }} \
             --title "prompter ${{ steps.version.outputs.version }}" \
-            --notes "Release ${{ steps.version.outputs.version }}" \
-            --draft
+            --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

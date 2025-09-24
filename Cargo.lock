@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "prompter"
-version = "0.4.5"
+version = "1.0.6"
 dependencies = [
  "chrono",
  "clap",
