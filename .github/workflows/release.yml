@@ -19,6 +19,7 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       - name: Validate version consistency
+        shell: bash
         run: |
           TAG_VERSION=$(echo "${{ steps.version.outputs.version }}" | sed 's/prompter-v//')
           CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
@@ -58,6 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify version consistency
+        shell: bash
         run: |
           EXPECTED_VERSION=$(echo "${{ needs.create-release.outputs.version }}" | sed 's/prompter-v//')
           # Verify the Cargo.toml version matches the tag
