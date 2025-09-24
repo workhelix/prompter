@@ -1,6 +1,6 @@
 [package]
 name = "prompter"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 rust-version = "1.70.0"
 license = "MIT"
