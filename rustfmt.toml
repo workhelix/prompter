@@ -1,4 +1,5 @@
 edition = "2024"
+msrv = "1.70.0"
 max_width = 100
 hard_tabs = false
 tab_spaces = 4

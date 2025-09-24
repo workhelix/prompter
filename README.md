@@ -15,26 +15,66 @@ A small Rust CLI to compose reusable prompt snippets from a library and a TOML m
 - Utilities: `--list`, `--validate`, `--init`, `--version`
 
 ## Install
-Prereqs: Rust toolchain with Cargo.
 
-Option A — helper script:
+### Quick Install (Recommended)
+
+Install the latest release directly from GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/workhelix/prompter/main/install.sh | sh
+```
+
+Or with a custom install directory:
+
+```bash
+INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/workhelix/prompter/main/install.sh | sh
+```
+
+The install script will:
+- Auto-detect your OS and architecture
+- Download the latest release
+- Verify checksums (when available)
+- Install to `$HOME/.local/bin` by default
+- Prompt before replacing existing installations
+- Guide you on adding the directory to your PATH
+
+### Manual Install Options
+
+**Option A — From source (requires Rust toolchain):**
+
+```bash
+git clone https://github.com/workhelix/prompter.git
+cd prompter
+cargo build --release
+install -m 0755 target/release/prompter ~/.local/bin/
+```
+
+**Option B — Using build script:**
 
 ```bash
 ./scripts/install.sh            # builds and installs to ~/.local/bin
 ./scripts/install.sh /opt/bin   # custom destination
 ```
 
-Ensure the install directory is in your PATH, e.g.:
+**Option C — Download release manually:**
+
+1. Go to [Releases](https://github.com/workhelix/prompter/releases)
+2. Download the appropriate `prompter-{target}.zip` for your platform
+3. Extract and copy the binary to a directory in your PATH
+
+### Supported Platforms
+
+- **Linux**: x86_64, aarch64
+- **macOS**: x86_64 (Intel), aarch64 (Apple Silicon)
+- **Windows**: x86_64
+
+### PATH Setup
+
+If the install directory is not in your PATH, add it:
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc  # or zshrc/fish equivalent
-```
-
-Option B — manual:
-
-```bash
-cargo build --release
-install -m 0755 target/release/prompter ~/.local/bin/
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc  # or ~/.zshrc
+source ~/.bashrc  # or source ~/.zshrc
 ```
 
 ## Initialize
