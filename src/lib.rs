@@ -325,11 +325,7 @@ fn read_config_with_path(path: &Path) -> Result<String, String> {
 }
 
 fn resolve_config_path(config_override: Option<&Path>) -> Result<PathBuf, String> {
-    if let Some(path) = config_override {
-        config_path_override(path)
-    } else {
-        config_path()
-    }
+    config_override.map_or_else(config_path, config_path_override)
 }
 
 fn library_path_for_config_override(
