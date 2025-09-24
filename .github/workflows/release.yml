@@ -57,6 +57,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Verify version consistency
+        run: |
+          EXPECTED_VERSION=$(echo "${{ needs.create-release.outputs.version }}" | sed 's/prompter-v//')
+          # Verify the Cargo.toml version matches the tag
+          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "🏷️  Tag version: $EXPECTED_VERSION"
+          echo "📦 Cargo.toml version: $CARGO_VERSION"
+          if [ "$EXPECTED_VERSION" != "$CARGO_VERSION" ]; then
+            echo "❌ ERROR: Tag version ($EXPECTED_VERSION) doesn't match Cargo.toml version ($CARGO_VERSION)"
+            echo "This indicates a version synchronization problem"
+            exit 1
+          fi
+          echo "✅ Version consistency verified for ${{ matrix.target }}"
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: prompter
@@ -67,24 +80,4 @@ jobs:
           checksum: sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify binary version
-        run: |
-          EXPECTED_VERSION=$(echo "${{ needs.create-release.outputs.version }}" | sed 's/prompter-v//')
-          # Find and test the built binary
-          if [ -f "target/release/prompter" ]; then
-            BINARY_VERSION=$(./target/release/prompter version | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
-          elif [ -f "target/release/prompter.exe" ]; then
-            BINARY_VERSION=$(./target/release/prompter.exe version | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
-          else
-            echo "❌ ERROR: Could not find built binary for verification"
-            exit 1
-          fi
-          echo "🏷️  Expected version: $EXPECTED_VERSION"
-          echo "🔧 Binary version: $BINARY_VERSION"
-          if [ "$EXPECTED_VERSION" != "$BINARY_VERSION" ]; then
-            echo "❌ ERROR: Built binary version ($BINARY_VERSION) doesn't match expected version ($EXPECTED_VERSION)"
-            echo "This indicates a version synchronization problem in the build process"
-            exit 1
-          fi
-          echo "✅ Binary version verified"
 
