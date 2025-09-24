@@ -98,26 +98,32 @@ download_and_verify() {
     fi
 
     # Try to download and verify checksum if available
-    local checksum_url="${download_url}.sha256"
-    local checksum_file="$temp_dir/${filename}.sha256"
+    local checksum_url="${GITHUB_DOWNLOAD_URL}/${REPO_OWNER}/${REPO_NAME}/releases/download/${version}/${filename%.*}.sha256"
+    local checksum_file="$temp_dir/${filename%.*}.sha256"
 
     if command -v curl >/dev/null 2>&1; then
         if curl -fsSL "$checksum_url" -o "$checksum_file" 2>/dev/null; then
             log_info "Verifying checksum..."
+            # Extract expected hash and verify directly
+            local expected_hash=$(cut -d' ' -f1 "$checksum_file")
+            local actual_hash
+
             if command -v sha256sum >/dev/null 2>&1; then
-                (cd "$temp_dir" && sha256sum -c "$checksum_file") || {
-                    log_error "Checksum verification failed!"
-                    exit 1
-                }
-                log_success "Checksum verification passed"
+                actual_hash=$(sha256sum "$temp_dir/$filename" | cut -d' ' -f1)
             elif command -v shasum >/dev/null 2>&1; then
-                (cd "$temp_dir" && shasum -a 256 -c "$checksum_file") || {
-                    log_error "Checksum verification failed!"
-                    exit 1
-                }
-                log_success "Checksum verification passed"
+                actual_hash=$(shasum -a 256 "$temp_dir/$filename" | cut -d' ' -f1)
             else
                 log_warn "No checksum utility available, skipping verification"
+                return 0
+            fi
+
+            if [ "$expected_hash" = "$actual_hash" ]; then
+                log_success "Checksum verification passed"
+            else
+                log_error "Checksum verification failed!"
+                log_error "Expected: $expected_hash"
+                log_error "Actual:   $actual_hash"
+                exit 1
             fi
         else
             log_warn "No checksum file available, skipping verification"
