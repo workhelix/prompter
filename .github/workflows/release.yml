@@ -51,6 +51,7 @@ jobs:
           tar: none
           tar-xz: none
           zip: all
+          checksum: sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
