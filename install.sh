@@ -68,7 +68,7 @@ detect_platform() {
 get_latest_version() {
     local api_url="$GITHUB_API_URL/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
 
-    log_info "Fetching latest release information..."
+    log_info "Fetching latest release information..." >&2
 
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL "$api_url" | grep '"tag_name":' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
