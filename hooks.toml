@@ -16,3 +16,35 @@ description = "Complete pre-commit quality assurance using shared hooks"
 includes = ["commit-validation"]
 execution = "sequential"
 description = "Commit message validation using shared hooks"
+
+# =============================================================================
+# VERSION MANAGEMENT HOOKS
+# =============================================================================
+
+[hooks.version-sync-check]
+command = "versioneer"
+args = ["verify"]
+include = ["Cargo.toml", "VERSION"]
+description = "Verify all version files are synchronized"
+
+[hooks.tag-version-check]
+command = "sh"
+args = ["-c", '''
+if git describe --exact-match --tags HEAD 2>/dev/null | grep -q "prompter-v"; then
+    TAG_VERSION=$(git describe --exact-match --tags HEAD | sed "s/prompter-v//")
+    CARGO_VERSION=$(versioneer show)
+    if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+        echo "❌ ERROR: Git tag version ($TAG_VERSION) doesn't match Cargo version ($CARGO_VERSION)"
+        echo "Use 'versioneer tag' to create tags that match the current version"
+        exit 1
+    fi
+    echo "✅ Tag version matches Cargo version: $TAG_VERSION"
+fi
+''']
+include = ["Cargo.toml", "VERSION"]
+description = "Verify git tag version matches Cargo.toml version"
+
+[groups.pre-push]
+hooks = ["version-sync-check", "tag-version-check"]
+execution = "sequential"
+description = "Version consistency validation before push"
