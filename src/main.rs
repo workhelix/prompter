@@ -37,13 +37,13 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        AppMode::List => {
-            if let Err(e) = run_list_stdout() {
+        AppMode::List { config } => {
+            if let Err(e) = run_list_stdout(config.as_deref()) {
                 eprintln!("{e}");
                 std::process::exit(1);
             }
         }
-        AppMode::Validate => match run_validate_stdout() {
+        AppMode::Validate { config } => match run_validate_stdout(config.as_deref()) {
             Ok(()) => println!("All profiles valid"),
             Err(errs) => {
                 eprintln!("Validation errors:\n{errs}");
@@ -55,12 +55,14 @@ fn main() {
             separator,
             pre_prompt,
             post_prompt,
+            config,
         } => {
             if let Err(e) = run_render_stdout(
                 &profile,
                 separator.as_deref(),
                 pre_prompt.as_deref(),
                 post_prompt.as_deref(),
+                config.as_deref(),
             ) {
                 eprintln!("{e}");
                 std::process::exit(1);

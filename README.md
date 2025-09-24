@@ -11,7 +11,8 @@ A small Rust CLI to compose reusable prompt snippets from a library and a TOML m
 - Recursive profile composition with cycle detection
 - Path-based deduplication (first occurrence wins)
 - Deterministic depth-first order respecting `depends_on`
-- Optional output separator with escape support (`\n`, `\t`, `\"`, `\\`)
+- Optional output separator with escape support (`\n`, `\t`, `"`, `\`)
+- Optional config override via `--config` for alternate manifests
 - Utilities: `--list`, `--validate`, `--init`, `--version`
 
 ## Install
@@ -73,7 +74,7 @@ install -m 0755 target/release/prompter ~/.local/bin/
 If the install directory is not in your PATH, add it:
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc  # or ~/.zshrc
+echo 'export PATH="\$HOME/.local/bin:\$PATH"' >> ~/.bashrc  # or ~/.zshrc
 source ~/.bashrc  # or source ~/.zshrc
 ```
 
@@ -100,6 +101,15 @@ depends_on = ["python.api", "a/b/d.md"]
 - Any `depends_on` entry ending with `.md` is treated as a library file path relative to `~/.local/prompter/library`.
 - Any other entry is treated as another profile and expanded recursively.
 
+### Using an Alternate Config
+
+You can point prompter at a specific config file using `--config` (works globally or per command). The library root is resolved relative to that config file when an override is supplied.
+
+```bash
+prompter --config demo/config.toml list
+prompter run --config demo/config.toml demo.profile
+```
+
 ## Use
 
 ```bash
@@ -123,6 +133,9 @@ prompter -p "Custom instruction here.\n" python.api
 
 # Render with both separator and pre-prompt
 prompter -s "\n---\n" -p "Custom pre-prompt.\n" python.api
+
+# Override config for a single render
+prompter --config demo/config.toml run demo.profile
 
 # Show help
 prompter help

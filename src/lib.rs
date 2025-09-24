@@ -55,6 +55,10 @@ pub struct Cli {
     /// Post-prompt text to inject at the end
     #[arg(short = 'P', long, value_name = "TEXT")]
     pub post_prompt: Option<String>,
+
+    /// Override configuration file path
+    #[arg(short = 'c', long, value_name = "FILE", global = true)]
+    pub config: Option<PathBuf>,
 }
 
 /// Available subcommands for the prompter CLI.
@@ -102,11 +106,19 @@ pub enum AppMode {
         pre_prompt: Option<String>,
         /// Optional custom post-prompt text
         post_prompt: Option<String>,
+        /// Optional configuration file override
+        config: Option<PathBuf>,
     },
-    /// List all available profiles
-    List,
-    /// Validate configuration and library references
-    Validate,
+    /// List all available profiles using an optional config override
+    List {
+        /// Optional configuration file override
+        config: Option<PathBuf>,
+    },
+    /// Validate configuration and library references with an optional config override
+    Validate {
+        /// Optional configuration file override
+        config: Option<PathBuf>,
+    },
     /// Initialize default configuration and library
     Init,
     /// Show version information
@@ -139,8 +151,12 @@ pub fn parse_args_from(args: Vec<String>) -> Result<AppMode, String> {
     match (&cli.command, &cli.profile) {
         (Some(Commands::Version), _) => Ok(AppMode::Version),
         (Some(Commands::Init), _) => Ok(AppMode::Init),
-        (Some(Commands::List), _) => Ok(AppMode::List),
-        (Some(Commands::Validate), _) => Ok(AppMode::Validate),
+        (Some(Commands::List), _) => Ok(AppMode::List {
+            config: cli.config.clone(),
+        }),
+        (Some(Commands::Validate), _) => Ok(AppMode::Validate {
+            config: cli.config.clone(),
+        }),
         (
             Some(Commands::Run {
                 profile,
@@ -167,6 +183,7 @@ pub fn parse_args_from(args: Vec<String>) -> Result<AppMode, String> {
                 separator: sep,
                 pre_prompt: pre,
                 post_prompt: post,
+                config: cli.config.clone(),
             })
         }
         (None, Some(profile)) => {
@@ -178,6 +195,7 @@ pub fn parse_args_from(args: Vec<String>) -> Result<AppMode, String> {
                 separator: sep,
                 pre_prompt: pre,
                 post_prompt: post,
+                config: cli.config.clone(),
             })
         }
         (None, None) => Ok(AppMode::Help),
@@ -239,6 +257,24 @@ fn library_dir() -> Result<PathBuf, String> {
     Ok(home_dir()?.join(".local/prompter/library"))
 }
 
+fn config_path_override(path: &Path) -> Result<PathBuf, String> {
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()
+            .map_err(|e| format!("Failed to resolve working directory: {e}"))?
+            .join(path)
+    };
+    Ok(resolved)
+}
+
+fn library_dir_for_config(config: &Path) -> Result<PathBuf, String> {
+    let parent = config
+        .parent()
+        .ok_or_else(|| format!("Config path {} has no parent directory", config.display()))?;
+    Ok(parent.join("library"))
+}
+
 fn is_terminal() -> bool {
     std::io::stdout().is_terminal()
 }
@@ -284,9 +320,27 @@ fn info_message(msg: &str) -> String {
     }
 }
 
-fn read_config() -> Result<String, String> {
-    let path = config_path()?;
-    fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+fn read_config_with_path(path: &Path) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+}
+
+fn resolve_config_path(config_override: Option<&Path>) -> Result<PathBuf, String> {
+    if let Some(path) = config_override {
+        config_path_override(path)
+    } else {
+        config_path()
+    }
+}
+
+fn library_path_for_config_override(
+    config_override: Option<&Path>,
+    resolved_config: &Path,
+) -> Result<PathBuf, String> {
+    if config_override.is_some() {
+        library_dir_for_config(resolved_config)
+    } else {
+        library_dir()
+    }
 }
 
 /// Parse TOML configuration into a Config structure.
@@ -764,8 +818,9 @@ depends_on = ["python.api", "a/b/d.md"]
 /// Returns an error if:
 /// - Configuration file cannot be read or parsed
 /// - Writing to stdout fails
-pub fn run_list_stdout() -> Result<(), String> {
-    let cfg_text = read_config()?;
+pub fn run_list_stdout(config_override: Option<&Path>) -> Result<(), String> {
+    let cfg_path = resolve_config_path(config_override)?;
+    let cfg_text = read_config_with_path(&cfg_path)?;
     let cfg = parse_config_toml(&cfg_text)?;
     list_profiles(&cfg, io::stdout()).map_err(|e| e.to_string())
 }
@@ -783,10 +838,11 @@ pub fn run_list_stdout() -> Result<(), String> {
 /// Returns an error if:
 /// - Configuration file cannot be read or parsed
 /// - Validation finds missing files or circular dependencies
-pub fn run_validate_stdout() -> Result<(), String> {
-    let cfg_text = read_config()?;
+pub fn run_validate_stdout(config_override: Option<&Path>) -> Result<(), String> {
+    let cfg_path = resolve_config_path(config_override)?;
+    let cfg_text = read_config_with_path(&cfg_path)?;
     let cfg = parse_config_toml(&cfg_text)?;
-    let lib = library_dir()?;
+    let lib = library_path_for_config_override(config_override, &cfg_path)?;
     validate(&cfg, &lib)
 }
 
@@ -911,10 +967,12 @@ pub fn run_render_stdout(
     separator: Option<&str>,
     pre_prompt: Option<&str>,
     post_prompt: Option<&str>,
+    config_override: Option<&Path>,
 ) -> Result<(), String> {
-    let cfg_text = read_config()?;
+    let cfg_path = resolve_config_path(config_override)?;
+    let cfg_text = read_config_with_path(&cfg_path)?;
     let cfg = parse_config_toml(&cfg_text)?;
-    let lib = library_dir()?;
+    let lib = library_path_for_config_override(config_override, &cfg_path)?;
     let stdout = io::stdout();
     let handle = stdout.lock();
     render_to_writer(
@@ -1242,11 +1300,13 @@ depends_on = ["file.md"]
                 separator,
                 pre_prompt,
                 post_prompt,
+                config,
             } => {
                 assert_eq!(profile, "profile");
                 assert_eq!(separator, Some("\n--\n".into()));
                 assert_eq!(pre_prompt, None);
                 assert_eq!(post_prompt, None);
+                assert!(config.is_none());
             }
             _ => panic!("expected run"),
         }
@@ -1263,23 +1323,52 @@ depends_on = ["file.md"]
                 separator,
                 pre_prompt,
                 post_prompt,
+                config,
             } => {
                 assert_eq!(profile, "profile");
                 assert_eq!(separator, None);
                 assert_eq!(pre_prompt, Some("Custom pre-prompt".into()));
                 assert_eq!(post_prompt, None);
+                assert!(config.is_none());
             }
             _ => panic!("expected run"),
         }
 
         let args = vec!["prompter".into(), "list".into()];
-        assert!(matches!(parse_args_from(args).unwrap(), AppMode::List));
+        assert!(matches!(parse_args_from(args).unwrap(), AppMode::List { config: None }));
         let args = vec!["prompter".into(), "validate".into()];
-        assert!(matches!(parse_args_from(args).unwrap(), AppMode::Validate));
+        assert!(matches!(parse_args_from(args).unwrap(), AppMode::Validate { config: None }));
         let args = vec!["prompter".into(), "init".into()];
         assert!(matches!(parse_args_from(args).unwrap(), AppMode::Init));
         let args = vec!["prompter".into(), "version".into()];
         assert!(matches!(parse_args_from(args).unwrap(), AppMode::Version));
+
+        let args = vec![
+            "prompter".into(),
+            "--config".into(),
+            "custom/config.toml".into(),
+            "list".into(),
+        ];
+        match parse_args_from(args).unwrap() {
+            AppMode::List { config } => {
+                assert_eq!(config, Some(PathBuf::from("custom/config.toml")));
+            }
+            other => panic!("unexpected mode: {other:?}"),
+        }
+
+        let args = vec![
+            "prompter".into(),
+            "run".into(),
+            "--config".into(),
+            "custom/config.toml".into(),
+            "profile".into(),
+        ];
+        match parse_args_from(args).unwrap() {
+            AppMode::Run { config, .. } => {
+                assert_eq!(config, Some(PathBuf::from("custom/config.toml")));
+            }
+            other => panic!("unexpected mode: {other:?}"),
+        }
     }
 
     struct FailAfterN {
@@ -1361,8 +1450,8 @@ depends_on = ["child", "f/y.md"]
         unsafe {
             env::set_var("HOME", &home);
         }
-        assert!(super::run_validate_stdout().is_ok());
-        assert!(super::run_list_stdout().is_ok());
+        assert!(super::run_validate_stdout(None).is_ok());
+        assert!(super::run_list_stdout(None).is_ok());
         if let Some(prev) = prev_home {
             unsafe {
                 env::set_var("HOME", prev);
@@ -1391,7 +1480,7 @@ depends_on = ["missing.md", "unknown_profile"]
         unsafe {
             env::set_var("HOME", &home);
         }
-        let err = super::run_validate_stdout().unwrap_err();
+        let err = super::run_validate_stdout(None).unwrap_err();
         assert!(
             err.contains("Missing file") && err.contains("Unknown profile"),
             "err={err}"
