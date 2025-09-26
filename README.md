@@ -157,6 +157,45 @@ You can override this with the `-p/--pre-prompt` option or disable it entirely b
 - Dedup: first path occurrence included, repeats dropped.
 - Order: depth-first traversal, preserves provided `depends_on` order.
 
+## Version Management
+
+**Automated Release Process** - This project uses `versioneer` for atomic version management:
+
+### Required Tools
+- **`versioneer`**: Synchronizes versions across Cargo.toml and VERSION files
+- **`peter-hook`**: Git hooks enforce version consistency validation
+- **Automated release script**: `./scripts/release.sh` handles complete release workflow
+
+### Version Management Rules
+1. **NEVER manually edit Cargo.toml version** - Use versioneer instead
+2. **NEVER create git tags manually** - Use `versioneer tag` or release script
+3. **ALWAYS use automated release workflow** - Prevents version/tag mismatches
+
+### Release Commands
+```bash
+# Automated release (recommended)
+./scripts/release.sh patch   # 1.0.10 -> 1.0.11
+./scripts/release.sh minor   # 1.0.10 -> 1.1.0
+./scripts/release.sh major   # 1.0.10 -> 2.0.0
+
+# Manual version management (advanced)
+versioneer patch             # Bump version
+versioneer sync              # Synchronize version files
+versioneer verify            # Check version consistency
+versioneer tag               # Create matching git tag
+```
+
+### Quality Gates
+- **Pre-push hooks**: Verify version file synchronization and tag consistency
+- **GitHub Actions**: Validate tag version matches Cargo.toml before release
+- **Binary verification**: Confirm built binary reports expected version
+- **Release script**: Runs full quality pipeline (tests, lints, audits) before release
+
+### Troubleshooting
+- **Version mismatch errors**: Run `versioneer verify` and `versioneer sync`
+- **Tag conflicts**: Use `versioneer tag` instead of `git tag`
+- **Failed releases**: Check GitHub Actions logs for version validation errors
+
 ## Development
 - Build: `cargo build --release`
 - Unit tests: `cargo test`
