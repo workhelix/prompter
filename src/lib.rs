@@ -1381,9 +1381,15 @@ depends_on = ["file.md"]
         }
 
         let args = vec!["prompter".into(), "list".into()];
-        assert!(matches!(parse_args_from(args).unwrap(), AppMode::List { config: None }));
+        assert!(matches!(
+            parse_args_from(args).unwrap(),
+            AppMode::List { config: None }
+        ));
         let args = vec!["prompter".into(), "validate".into()];
-        assert!(matches!(parse_args_from(args).unwrap(), AppMode::Validate { config: None }));
+        assert!(matches!(
+            parse_args_from(args).unwrap(),
+            AppMode::Validate { config: None }
+        ));
         let args = vec!["prompter".into(), "init".into()];
         assert!(matches!(parse_args_from(args).unwrap(), AppMode::Init));
         let args = vec!["prompter".into(), "version".into()];

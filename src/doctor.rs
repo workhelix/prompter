@@ -48,7 +48,10 @@ pub fn run_doctor() -> i32 {
     if library_path.exists() {
         println!("  ✅ Library directory: {}", library_path.display());
     } else {
-        println!("  ❌ Library directory not found: {}", library_path.display());
+        println!(
+            "  ❌ Library directory not found: {}",
+            library_path.display()
+        );
         println!("  ℹ️  Run 'prompter init' to create default library");
         has_errors = true;
     }
@@ -65,7 +68,10 @@ pub fn run_doctor() -> i32 {
             has_warnings = true;
         }
         Ok(None) => {
-            println!("  ✅ Running latest version (v{})", env!("CARGO_PKG_VERSION"));
+            println!(
+                "  ✅ Running latest version (v{})",
+                env!("CARGO_PKG_VERSION")
+            );
         }
         Err(e) => {
             println!("  ⚠️  Failed to check for updates: {e}");
@@ -77,15 +83,20 @@ pub fn run_doctor() -> i32 {
 
     // Summary
     if has_errors {
-        println!("❌ {} found", if has_warnings {
-            format!("{} error{}, {} warning{}",
-                if has_errors { "1" } else { "0" },
-                if has_errors { "" } else { "s" },
-                if has_warnings { "1" } else { "0" },
-                if has_warnings { "" } else { "s" })
-        } else {
-            "1 error".to_string()
-        });
+        println!(
+            "❌ {} found",
+            if has_warnings {
+                format!(
+                    "{} error{}, {} warning{}",
+                    if has_errors { "1" } else { "0" },
+                    if has_errors { "" } else { "s" },
+                    if has_warnings { "1" } else { "0" },
+                    if has_warnings { "" } else { "s" }
+                )
+            } else {
+                "1 error".to_string()
+            }
+        );
         1
     } else if has_warnings {
         println!("⚠️  1 warning found");
@@ -115,7 +126,9 @@ fn check_for_updates() -> Result<Option<String>, String> {
         .as_str()
         .ok_or_else(|| "No tag_name in response".to_string())?;
 
-    let latest = tag_name.trim_start_matches("prompter-v").trim_start_matches('v');
+    let latest = tag_name
+        .trim_start_matches("prompter-v")
+        .trim_start_matches('v');
     let current = env!("CARGO_PKG_VERSION");
 
     if latest == current {

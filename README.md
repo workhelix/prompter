@@ -206,4 +206,4 @@ versioneer tag               # Create matching git tag
 - Library root: `~/.local/prompter/library`
 
 ## License
-CC0 1.0 Universal (CC0-1.0). See LICENSE for details.
+MIT License. See LICENSE for details.

@@ -98,7 +98,9 @@ fn get_latest_version() -> Result<String, String> {
         .as_str()
         .ok_or_else(|| "No tag_name in response".to_string())?;
 
-    let version = tag_name.trim_start_matches("prompter-v").trim_start_matches('v');
+    let version = tag_name
+        .trim_start_matches("prompter-v")
+        .trim_start_matches('v');
     Ok(version.to_string())
 }
 
@@ -112,7 +114,9 @@ fn perform_update(version: &str, install_path: &Path) -> Result<(), String> {
     };
 
     let filename = format!("prompter-{platform}.{archive_ext}");
-    let download_url = format!("https://github.com/workhelix/prompter/releases/download/prompter-v{version}/{filename}");
+    let download_url = format!(
+        "https://github.com/workhelix/prompter/releases/download/prompter-v{version}/{filename}"
+    );
 
     println!("📥 Downloading {filename}...");
 
