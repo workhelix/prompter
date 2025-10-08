@@ -88,6 +88,26 @@ pub enum Commands {
         #[arg(short = 'P', long)]
         post_prompt: Option<String>,
     },
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+    /// Check health and configuration status
+    Doctor,
+    /// Update to the latest version
+    Update {
+        /// Install specific version instead of latest
+        #[arg(long)]
+        version: Option<String>,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+        /// Custom installation directory
+        #[arg(long)]
+        install_dir: Option<PathBuf>,
+    },
 }
 
 /// Application execution modes after parsing command-line arguments.
@@ -125,6 +145,22 @@ pub enum AppMode {
     Version,
     /// Show help information
     Help,
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
+    /// Check health and configuration status
+    Doctor,
+    /// Update to the latest version
+    Update {
+        /// Optional specific version to install
+        version: Option<String>,
+        /// Skip confirmation prompt
+        force: bool,
+        /// Custom installation directory
+        install_dir: Option<PathBuf>,
+    },
 }
 
 /// Parse command-line arguments and return the resolved application mode.
@@ -156,6 +192,20 @@ pub fn parse_args_from(args: Vec<String>) -> Result<AppMode, String> {
         }),
         (Some(Commands::Validate), _) => Ok(AppMode::Validate {
             config: cli.config.clone(),
+        }),
+        (Some(Commands::Completions { shell }), _) => Ok(AppMode::Completions { shell: *shell }),
+        (Some(Commands::Doctor), _) => Ok(AppMode::Doctor),
+        (
+            Some(Commands::Update {
+                version,
+                force,
+                install_dir,
+            }),
+            _,
+        ) => Ok(AppMode::Update {
+            version: version.clone(),
+            force: *force,
+            install_dir: install_dir.clone(),
         }),
         (
             Some(Commands::Run {

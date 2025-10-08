@@ -10,6 +10,10 @@ use prompter::{
     run_validate_stdout,
 };
 
+mod completions;
+mod doctor;
+mod update;
+
 fn parse_args() -> Result<AppMode, String> {
     let args: Vec<String> = env::args().collect();
     parse_args_from(args)
@@ -30,6 +34,21 @@ fn main() {
         }
         AppMode::Version => {
             println!("prompter {}", env!("CARGO_PKG_VERSION"));
+        }
+        AppMode::Completions { shell } => {
+            completions::generate_completions(shell);
+        }
+        AppMode::Doctor => {
+            let exit_code = doctor::run_doctor();
+            std::process::exit(exit_code);
+        }
+        AppMode::Update {
+            version,
+            force,
+            install_dir,
+        } => {
+            let exit_code = update::run_update(version.as_deref(), force, install_dir.as_deref());
+            std::process::exit(exit_code);
         }
         AppMode::Init => {
             if let Err(e) = init_scaffold() {

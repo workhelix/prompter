@@ -79,6 +79,9 @@ Uses subcommand pattern with clap:
 - `prompter init` - create default config/library (with progress spinner)
 - `prompter version` - show version
 - `prompter help` - show help (built-in)
+- `prompter completions <shell>` - generate shell completions (bash/zsh/fish)
+- `prompter doctor` - health check and update notifications
+- `prompter update` - self-update to latest version
 - `prompter -s <sep> <profile>` - render with separator
 - `prompter -p <text> <profile>` - render with custom pre-prompt
 
