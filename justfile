@@ -133,8 +133,15 @@ release level:
     echo "✅ Version bumped: $CURRENT_VERSION → $NEW_VERSION"
     echo ""
 
+    # Create commit
+    echo "Step 4: Committing changes..."
+    git add Cargo.toml Cargo.lock VERSION
+    git commit -m "chore: bump version to $NEW_VERSION"
+    echo "✅ Changes committed"
+    echo ""
+
     # Create tag
-    echo "Step 4: Creating git tag..."
+    echo "Step 5: Creating git tag..."
     versioneer tag --tag-format "prompter-v{version}"
 
     # Verify tag matches version
@@ -144,13 +151,6 @@ release level:
         exit 1
     fi
     echo "✅ Created tag: prompter-v$NEW_VERSION"
-    echo ""
-
-    # Create commit
-    echo "Step 5: Committing changes..."
-    git add Cargo.toml Cargo.lock VERSION
-    git commit -m "chore: bump version to $NEW_VERSION"
-    echo "✅ Changes committed"
     echo ""
 
     # Interactive confirmation
