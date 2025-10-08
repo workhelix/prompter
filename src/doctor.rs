@@ -32,7 +32,7 @@ pub fn run_doctor() -> i32 {
                 }
             }
             Err(e) => {
-                println!("  ❌ Failed to read config: {}", e);
+                println!("  ❌ Failed to read config: {e}");
                 has_errors = true;
             }
         }
@@ -118,9 +118,9 @@ fn check_for_updates() -> Result<Option<String>, String> {
     let latest = tag_name.trim_start_matches("prompter-v").trim_start_matches('v');
     let current = env!("CARGO_PKG_VERSION");
 
-    if latest != current {
-        Ok(Some(latest.to_string()))
-    } else {
+    if latest == current {
         Ok(None)
+    } else {
+        Ok(Some(latest.to_string()))
     }
 }

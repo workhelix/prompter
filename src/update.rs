@@ -1,5 +1,6 @@
 //! Self-update module.
 
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
 /// Run update command to install latest or specified version.
@@ -111,10 +112,7 @@ fn perform_update(version: &str, install_path: &Path) -> Result<(), String> {
     };
 
     let filename = format!("prompter-{platform}.{archive_ext}");
-    let download_url = format!(
-        "https://github.com/workhelix/prompter/releases/download/prompter-v{}/{}",
-        version, filename
-    );
+    let download_url = format!("https://github.com/workhelix/prompter/releases/download/prompter-v{version}/{filename}");
 
     println!("📥 Downloading {filename}...");
 
@@ -143,9 +141,7 @@ fn perform_update(version: &str, install_path: &Path) -> Result<(), String> {
         .send()
         .map_err(|e| e.to_string())?;
 
-    if !checksum_response.status().is_success() {
-        eprintln!("⚠️  Checksum file not available, skipping verification");
-    } else {
+    if checksum_response.status().is_success() {
         println!("🔐 Verifying checksum...");
         let expected_checksum = checksum_response.text().map_err(|e| e.to_string())?;
         let expected_hash = expected_checksum
@@ -154,7 +150,6 @@ fn perform_update(version: &str, install_path: &Path) -> Result<(), String> {
             .ok_or_else(|| "Invalid checksum format".to_string())?;
 
         // Calculate actual checksum
-        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
         let actual_hash = hex::encode(hasher.finalize());
@@ -166,6 +161,8 @@ fn perform_update(version: &str, install_path: &Path) -> Result<(), String> {
         }
 
         println!("✅ Checksum verified");
+    } else {
+        eprintln!("⚠️  Checksum file not available, skipping verification");
     }
 
     // Extract and install
@@ -178,12 +175,11 @@ fn perform_update(version: &str, install_path: &Path) -> Result<(), String> {
     if cfg!(target_os = "windows") {
         // Extract zip (would need zip crate)
         return Err("Windows update not yet implemented".to_string());
-    } else {
-        // Extract tar.gz
-        let tar_gz = flate2::read::GzDecoder::new(&bytes[..]);
-        let mut archive = tar::Archive::new(tar_gz);
-        archive.unpack(temp_dir.path()).map_err(|e| e.to_string())?;
     }
+    // Extract tar.gz
+    let tar_gz = flate2::read::GzDecoder::new(&bytes[..]);
+    let mut archive = tar::Archive::new(tar_gz);
+    archive.unpack(temp_dir.path()).map_err(|e| e.to_string())?;
 
     // Find binary in temp dir
     let binary_name = if cfg!(target_os = "windows") {
@@ -211,10 +207,7 @@ fn perform_update(version: &str, install_path: &Path) -> Result<(), String> {
     // Replace binary
     std::fs::copy(&temp_binary, install_path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
-            format!(
-                "Permission denied. Try running with sudo or use --install-dir to specify a writable location:\n  {}",
-                e
-            )
+            format!("Permission denied. Try running with sudo or use --install-dir to specify a writable location:\n  {e}")
         } else {
             e.to_string()
         }
