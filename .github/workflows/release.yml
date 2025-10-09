@@ -17,7 +17,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Get version
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG_NAME#prompter-}
+          echo "version=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "version_number=$VERSION" >> $GITHUB_OUTPUT
       - name: Validate version consistency
         shell: bash
         run: |
@@ -35,8 +39,10 @@ jobs:
       - name: Create Release
         run: |
           gh release create ${{ steps.version.outputs.version }} \
-            --title "prompter ${{ steps.version.outputs.version }}" \
-            --generate-notes
+            --title "Prompter ${{ steps.version.outputs.version_number }}" \
+            --generate-notes \
+            --draft \
+            --repo workhelix/prompter
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -74,11 +80,28 @@ jobs:
           echo "✅ Version consistency verified for ${{ matrix.target }}"
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
+          # Binary name (matches the name in Cargo.toml)
           bin: prompter
+          # Target platform (one per matrix job)
           target: ${{ matrix.target }}
+          # Include additional files in the release archive
+          include: LICENSE,README.md,CLAUDE.md,examples
+          # Use tar.gz for Unix, zip for Windows
           tar: unix
           zip: windows
+          # Generate SHA256 checksums
           checksum: sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  publish-release:
+    needs: [create-release, build-and-upload]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish Release
+        run: |
+          gh release edit ${{ needs.create-release.outputs.version }} \
+            --draft=false \
+            --repo workhelix/prompter
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

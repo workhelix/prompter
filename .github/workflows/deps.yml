@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.86.0
 
       - name: Install cargo-audit
         run: cargo install cargo-audit
@@ -50,7 +50,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.86.0
 
       - name: Install cargo-outdated
         run: cargo install cargo-outdated
@@ -94,10 +94,11 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.86.0
 
       - name: Generate minimal lockfile
         run: |
+          # Switch to nightly for -Z minimal-versions
           rustup default nightly
           cargo update -Z minimal-versions
           rustup default stable
@@ -109,14 +110,14 @@ jobs:
         run: git checkout -- Cargo.lock
 
   msrv-check:
-    name: Compatibility (stable)
+    name: MSRV Compatibility
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.70.0
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -125,12 +126,18 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: stable-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: msrv-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Check build and tests
+      - name: Check MSRV compatibility
         run: |
           cargo check --all
           cargo test --all
+
+      - name: Install cargo-msrv
+        run: cargo install cargo-msrv
+
+      - name: Verify MSRV
+        run: cargo msrv --output-format json
 
   licenses:
     name: License Compatibility Check
@@ -140,7 +147,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.86.0
 
       - name: Install cargo-deny
         run: cargo install cargo-deny
@@ -149,6 +156,7 @@ jobs:
         run: |
           cat > deny.toml << 'EOF'
           [licenses]
+          # Acceptable licenses for dependencies
           allow = [
               "MIT",
               "Apache-2.0",
@@ -159,18 +167,26 @@ jobs:
               "Unicode-DFS-2016",
               "Unlicense",
           ]
+
+          # Licenses that are explicitly denied
           deny = [
               "GPL-2.0",
               "GPL-3.0",
               "AGPL-1.0",
               "AGPL-3.0",
           ]
+
           [bans]
+          # Multiple versions of the same crate
           multiple-versions = "warn"
           wildcards = "allow"
+
           [advisories]
+          # Warn about security vulnerabilities
+          vulnerability = "deny"
           unmaintained = "warn"
           yanked = "warn"
+          notice = "warn"
           EOF
 
       - name: Check licenses and security
