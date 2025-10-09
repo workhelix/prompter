@@ -85,7 +85,7 @@ jobs:
           # Target platform (one per matrix job)
           target: ${{ matrix.target }}
           # Include additional files in the release archive
-          include: LICENSE,README.md,CLAUDE.md,examples
+          include: LICENSE,README.md,CLAUDE.md
           # Use tar.gz for Unix, zip for Windows
           tar: unix
           zip: windows
