@@ -230,3 +230,120 @@ fn test_version_flag() {
     let expected = format!("prompter {}", env!("CARGO_PKG_VERSION"));
     assert_eq!(got, expected);
 }
+
+#[test]
+fn test_completions_bash() {
+    let out = Command::new(bin_path())
+        .args(["completions", "bash"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("prompter"));
+    assert!(stdout.contains("_prompter"));
+}
+
+#[test]
+fn test_completions_zsh() {
+    let out = Command::new(bin_path())
+        .args(["completions", "zsh"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("prompter"));
+}
+
+#[test]
+fn test_completions_fish() {
+    let out = Command::new(bin_path())
+        .args(["completions", "fish"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("prompter"));
+}
+
+#[test]
+fn test_doctor_command() {
+    let out = Command::new(bin_path()).arg("doctor").output().unwrap();
+    // Doctor may succeed or fail depending on local setup
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("health check"));
+}
+
+#[test]
+fn test_help_flag() {
+    let out = Command::new(bin_path()).arg("--help").output().unwrap();
+    // Help output may go to stdout or stderr depending on exit code
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(combined.contains("prompter") || combined.contains("Usage:"));
+}
+
+#[test]
+fn test_run_with_separator() {
+    let home = tmp_home("prompter_it_sep");
+    fs::create_dir_all(&home).unwrap();
+
+    // Init first
+    Command::new(bin_path())
+        .env("HOME", &home)
+        .arg("init")
+        .output()
+        .unwrap();
+
+    // Run with custom separator
+    let out = Command::new(bin_path())
+        .env("HOME", &home)
+        .args(["--separator", "\\n---\\n", "python.api"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("\n---\n"));
+}
+
+#[test]
+fn test_run_with_custom_pre_prompt() {
+    let home = tmp_home("prompter_it_pre");
+    fs::create_dir_all(&home).unwrap();
+
+    Command::new(bin_path())
+        .env("HOME", &home)
+        .arg("init")
+        .output()
+        .unwrap();
+
+    let out = Command::new(bin_path())
+        .env("HOME", &home)
+        .args(["--pre-prompt", "Custom prefix", "python.api"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("Custom prefix"));
+}
+
+#[test]
+fn test_run_with_custom_post_prompt() {
+    let home = tmp_home("prompter_it_post");
+    fs::create_dir_all(&home).unwrap();
+
+    Command::new(bin_path())
+        .env("HOME", &home)
+        .arg("init")
+        .output()
+        .unwrap();
+
+    let out = Command::new(bin_path())
+        .env("HOME", &home)
+        .args(["--post-prompt", "Custom suffix", "python.api"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.ends_with("Custom suffix"));
+}

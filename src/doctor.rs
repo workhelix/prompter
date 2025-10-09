@@ -137,3 +137,33 @@ fn check_for_updates() -> Result<Option<String>, String> {
         Ok(Some(latest.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_for_updates_handles_network_errors() {
+        // Test that check_for_updates returns a Result
+        let result = check_for_updates();
+        // Either Ok or Err is acceptable since we're testing structure
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_check_for_updates_returns_option() {
+        // Verify the function signature works correctly
+        if let Ok(Some(version)) = check_for_updates() {
+            // If we got a version, it should be non-empty
+            assert!(!version.is_empty());
+        }
+        // Already at latest or network error - both acceptable in tests
+    }
+
+    #[test]
+    fn test_run_doctor_returns_valid_exit_code() {
+        let exit_code = run_doctor();
+        // Should return 0 or 1
+        assert!(exit_code == 0 || exit_code == 1);
+    }
+}

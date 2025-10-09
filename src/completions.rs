@@ -44,3 +44,41 @@ pub fn generate_completions(shell: Shell) {
     // Generate completions
     clap_complete::generate(shell, &mut cmd, bin_name, &mut io::stdout());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap_complete::Shell;
+
+    #[test]
+    fn test_generate_completions_bash() {
+        generate_completions(Shell::Bash);
+    }
+
+    #[test]
+    fn test_generate_completions_zsh() {
+        generate_completions(Shell::Zsh);
+    }
+
+    #[test]
+    fn test_generate_completions_fish() {
+        generate_completions(Shell::Fish);
+    }
+
+    #[test]
+    fn test_generate_completions_elvish() {
+        generate_completions(Shell::Elvish);
+    }
+
+    #[test]
+    fn test_generate_completions_powershell() {
+        generate_completions(Shell::PowerShell);
+    }
+
+    #[test]
+    fn test_cli_command_factory() {
+        use clap::CommandFactory;
+        let cmd = Cli::command();
+        assert_eq!(cmd.get_name(), "prompter");
+    }
+}

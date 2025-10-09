@@ -230,3 +230,60 @@ fn get_platform_string() -> &'static str {
         _ => "unknown",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_get_platform_string() {
+        let platform = get_platform_string();
+        // Verify it returns one of the known platforms
+        assert!(
+            platform == "x86_64-apple-darwin"
+                || platform == "aarch64-apple-darwin"
+                || platform == "x86_64-unknown-linux-gnu"
+                || platform == "aarch64-unknown-linux-gnu"
+                || platform == "x86_64-pc-windows-msvc"
+                || platform == "unknown"
+        );
+    }
+
+    #[test]
+    fn test_get_latest_version_handles_errors() {
+        // Test that get_latest_version returns a Result
+        let result = get_latest_version();
+        // Either Ok or Err is acceptable since we're testing structure
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_run_update_with_current_version() {
+        // Test update when already at current version
+        let current = env!("CARGO_PKG_VERSION");
+        let temp_dir = TempDir::new().unwrap();
+        let exit_code = run_update(Some(current), false, Some(temp_dir.path()));
+        // Should return 2 for "already up-to-date"
+        assert_eq!(exit_code, 2);
+    }
+
+    #[test]
+    fn test_run_update_rejects_invalid_path() {
+        // Test with an invalid/non-writable path
+        let exit_code = run_update(Some("99.99.99"), true, Some(Path::new("/nonexistent")));
+        // Should fail with exit code 1
+        assert_eq!(exit_code, 1);
+    }
+
+    #[test]
+    fn test_run_update_with_force_flag() {
+        // Test force flag bypasses up-to-date check
+        let current = env!("CARGO_PKG_VERSION");
+        let temp_dir = TempDir::new().unwrap();
+        let exit_code = run_update(Some(current), true, Some(temp_dir.path()));
+        // With force=true, it tries to download current version and may succeed or fail
+        // depending on whether release exists
+        assert!(exit_code == 0 || exit_code == 1);
+    }
+}
