@@ -31,7 +31,7 @@ jobs:
 
       - name: Create issue on security vulnerability
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const title = '🚨 Security vulnerability detected in dependencies';
